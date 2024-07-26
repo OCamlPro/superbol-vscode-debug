@@ -51,7 +51,7 @@
 		],
 		"debuggers": [
 			{
-				"type": "gdb",
+				"type": "superbol-gdb",
 				"languages": ["cobol", "COBOL"],
 				"program": "./out/src/gdb.js",
 				"runtime": "node",
@@ -187,7 +187,7 @@
 						"description": "New SuperBOL launch request",
 						"body": {
 							"name": "${2:SuperBOL: debug launch}",
-							"type": "gdb",
+							"type": "superbol-gdb",
 							"request": "launch",
 							"target": "$${_:{file}}",
 							"arguments": "",
@@ -203,7 +203,7 @@
 						"description": "New SuperBOL attach local request",
 						"body": {
 							"name": "${2:SuperBOL: debug attach local}",
-							"type": "gdb",
+							"type": "superbol-gdb",
 							"request": "attach",
 							"pid": "${3:0}",
 							"target": "$${_:{file}}",
@@ -218,7 +218,7 @@
 						"description": "New SuperBOL attach remote request",
 						"body": {
 							"name": "${2:SuperBOL: debug attach remote}",
-							"type": "gdb",
+							"type": "superbol-gdb",
 							"request": "attach",
 							"remoteDebugger": "${3:host:port}",
 							"target": "$${_:{file}}",
