@@ -2,45 +2,16 @@ import { Breakpoint, IDebugger, MIError, Stack, Thread, DebuggerVariable } from 
 import * as ChildProcess from "child_process";
 import { EventEmitter } from "events";
 import { MINode, parseMI } from './parser.mi2';
-import * as nativePathFromPath from "path";
+import * as path from "path";
 import * as fs from "fs";
 import { SourceMap } from "./parser.c";
 import { parseExpression, cleanRawValue } from "./functions";
 import * as vscode from 'vscode';
 
-const nativePath = {
-    resolve: function (...args: string[]): string {
-        const nat = nativePathFromPath.resolve(...args);
-        if (process.platform === "win32" && this.cobcpath === "docker" && this.gdbpath === "docker") {
-            return nat.replace(/.*:/, s => "/" + s.toLowerCase().replace(":", "")).replace(/\\/g, "/");
-        }
-        return nat;
-    },
-    dirname: function (path: string): string {
-        const nat = nativePathFromPath.dirname(path);
-        if (process.platform === "win32" && this.cobcpath === "docker" && this.gdbpath === "docker") {
-            return nat.replace(/.*:/, s => "/" + s.toLowerCase().replace(":", "")).replace(/\\/g, "/");
-        }
-        return nat;
-    },
-    basename: function (path: string): string {
-        return nativePathFromPath.basename(path);
-    },
-    isAbsolute: function (path: string): boolean {
-        return nativePathFromPath.isAbsolute(path);
-    },
-    join: function (...args: string[]) {
-        return nativePathFromPath.join(...args);
-    },
-    normalize: function (path: string) {
-        return nativePathFromPath.normalize(path);
-    }
-};
-
-const nonOutput = /(^(?:\d*|undefined)[\*\+\-\=\~\@\&\^])([^\*\+\-\=\~\@\&\^]{1,})/;
+const nonOutput = /(^(?:\d*|undefined)[*+\-=~@&^])([^*+\-=~@&]{1,})/;
 const gdbRegex = /(?:\d*|undefined)\(gdb\)/;
 const numRegex = /\d+/;
-const gcovRegex = /\"([0-9a-z_\-\/\s\\:]+\.o)\"/gi;
+const gcovRegex = /"([0-9a-z_\-/\s\\:]+\.o)"/gi;
 let NEXT_TERM_ID = 1;
 // 002 - stepOver in routines with "perform"
 let subroutine = -1;
@@ -57,29 +28,29 @@ export function couldBeOutput(line: string) {
 export class MI2 extends EventEmitter implements IDebugger {
     private map: SourceMap;
     private gcovFiles: Set<string> = new Set<string>();
-    public procEnv: any;
-    private currentToken: number = 1;
-    private handlers: { [index: number]: (info: MINode) => any } = {};
-    private breakpoints: Map<Breakpoint, Number> = new Map();
+    public procEnv: NodeJS.ProcessEnv;
+    private currentToken = 1;
+    private handlers: { [index: number]: (_: MINode) => unknown } = {};
+    private breakpoints: Map<Breakpoint, number> = new Map();
     private buffer: string;
     private errbuf: string;
     private process: ChildProcess.ChildProcess;
-    private lastStepCommand: Function;
-    private hasCobGetFieldStringFunction: boolean = true;
-    private hasCobPutFieldStringFunction: boolean = true;
+    private lastStepCommand: () => Thenable<boolean>;
+    private hasCobGetFieldStringFunction = true;
+    private hasCobPutFieldStringFunction = true;
 
-    constructor(public gdbpath: string, public gdbArgs: string[], public cobcpath: string, public cobcArgs: string[], procEnv: any, public verbose: boolean, public noDebug: boolean, public gdbtty: boolean) {
+    constructor(public gdbpath: string, public gdbArgs: string[], procEnv: NodeJS.ProcessEnv, public verbose: boolean, public noDebug: boolean | null, public gdbtty: boolean | null) {
         super();
         if (procEnv) {
             const env = {};
             // Duplicate process.env so we don't override it
             for (const key in process.env)
-                if (process.env.hasOwnProperty(key)) {
+                if (key in process.env) {
                     env[key] = process.env[key];
                 }
             // Overwrite with user specified variables
             for (const key in procEnv) {
-                if (procEnv.hasOwnProperty(key)) {
+                if (key in procEnv) {
                     if (procEnv === null) {
                         delete env[key];
                     } else {
@@ -91,85 +62,31 @@ export class MI2 extends EventEmitter implements IDebugger {
         }
     }
 
-    load(cwd: string, target: string, targetargs: string, group: string[], gdbtty: boolean): Thenable<any> {
-        if (!nativePath.isAbsolute(target) || (this.cobcpath === "docker" && this.gdbpath === "docker")) {
-            target = nativePath.resolve(cwd, target);
-        }
-        group.forEach(e => {
-            e = nativePath.join(cwd, e);
-        });
+    load(cwd: string, target: string, targetargs: string, group: string[], gdbtty: boolean): Thenable<unknown> {
+        group.map(e => { path.join(cwd, e); });
 
-        return new Promise((resolve, reject) => {
+        return new Promise(async (resolve, reject) => {
             if (!fs.existsSync(cwd)) {
                 reject(new Error("cwd does not exist."));
             }
 
-            if (!!this.noDebug && !gdbtty) {
-                const args = this.cobcArgs
-                    .concat([target])
-                    .concat(group)
-                    .concat(['-job=' + targetargs]);
-                this.process = ChildProcess.spawn(this.cobcpath, args, { cwd: cwd, env: this.procEnv });
-                this.process.stderr.on("data", ((data) => {
-                    this.log("stderr", data);
-                }).bind(this));
-                this.process.stdout.on("data", ((data) => {
-                    this.log("stdout", data);
-                }).bind(this));
-                this.process.on("exit", (() => {
-                    this.emit("quit");
-                }).bind(this));
-                return;
-            }
-
-            const args = this.cobcArgs.concat([
-                '-g',
-                '-fsource-location',
-                '-ftraceall',
-                '-Q',
-                '--coverage',
-                '-A',
-                '--coverage',
-                '-v',
-                target
-            ]).concat(group);
-            const buildProcess = ChildProcess.spawn(this.cobcpath, args, { cwd: cwd, env: this.procEnv });
-            buildProcess.stderr.on('data', (data) => {
-                if (this.verbose)
-                    this.log("stderr", data);
-                let match;
-                do {
-                    match = gcovRegex.exec(data);
-                    if (match) {
-                        this.gcovFiles.add(match[1].split('.').slice(0, -1).join('.'));
-                    }
-                } while (match);
-            });
-            buildProcess.on('exit', async (code) => {
-                if (code !== 0) {
-                    this.emit("quit");
-                    return;
-                }
-
-                if (this.verbose) {
-                    this.log("stderr", `COBOL file ${target} compiled with exit code: ${code}`);
-                }
-
+                let target_no_ext = target.split('.').slice(0, -1).join('.');
+                this.gcovFiles.add(target_no_ext);
                 try {
                     this.map = new SourceMap(cwd, [target].concat(group));
                 } catch (e) {
-                    this.log('stderr', e);
+                    this.log('stderr', (<Error>e).toString());
                 }
 
                 if (this.verbose) {
                     this.log("stderr", this.map.toString());
                 }
 
-                target = nativePath.resolve(cwd, nativePath.basename(target));
+                target = path.resolve(cwd, path.basename(target));
                 target = target.split('.').slice(0, -1).join('.');
                 // FIXME: the following should prefix "cobcrun.exe" if in "module mode", see #13
                 // FIXME: if we need this code twice then add a comment why, otherwise move to a new function
-                if (process.platform === "win32" && this.cobcpath !== "docker" && this.gdbpath !== "docker") {
+                if (process.platform === "win32") {
                     target = target + '.exe';
                 }
 
@@ -181,16 +98,10 @@ export class MI2 extends EventEmitter implements IDebugger {
                 // 001-gdbtty-End
 
                 this.process = ChildProcess.spawn(this.gdbpath, this.gdbArgs, { cwd: cwd, env: this.procEnv });
-                this.process.stdout.on("data", this.stdout.bind(this));
-                this.process.stderr.on("data", ((data) => {
-                    this.log("stderr", data);
-                }).bind(this));
-                this.process.on("exit", (() => {
-                    this.emit("quit");
-                }).bind(this));
-                this.process.on("error", ((err) => {
-                    this.emit("launcherror", err);
-                }).bind(this));
+                this.process.stdout.on("data", (data: string) => this.stdout(data));
+                this.process.stderr.on("data", (data: string) => { this.log("stderr", data); });
+                this.process.on("exit", (() => { this.emit("quit"); }));
+                this.process.on("error", (err) => { this.emit("launcherror", err); });
                 const promises = this.initCommands(target, targetargs, cwd);
                 // 001-gdbtty - additional parameters for gdb
                 for (let item of gdbttyParameters)
@@ -200,56 +111,32 @@ export class MI2 extends EventEmitter implements IDebugger {
                     this.emit("debug-ready");
                     resolve(true);
                 }, reject);
-            });
+
         });
     }
 
-    attach(cwd: string, target: string, targetargs: string, group: string[]): Thenable<any> {
-        if (!nativePath.isAbsolute(target)) {
-            target = nativePath.join(cwd, target);
+    attach(cwd: string, target: string, targetargs: string, group: string[]): Thenable<unknown> {
+        if (!path.isAbsolute(target)) {
+            target = path.join(cwd, target);
         }
-        group.forEach(e => {
-            e = nativePath.join(cwd, e);
-        });
+        group.map(e => { path.join(cwd, e) });
 
         return new Promise((resolve, reject) => {
             if (!fs.existsSync(cwd)) {
                 reject(new Error("cwd does not exist."));
             }
 
-            const args = this.cobcArgs.concat([
-                '-g',
-                '-fsource-location',
-                '-ftraceall',
-                '-v',
-                target
-            ]).concat(group);
-            const buildProcess = ChildProcess.spawn(this.cobcpath, args, { cwd: cwd, env: this.procEnv });
-            buildProcess.stderr.on('data', (data) => {
-                if (this.verbose)
-                    this.log("stderr", data);
-            });
-            buildProcess.on('exit', (code) => {
-                if (code !== 0) {
-                    this.emit("quit");
-                    return;
-                }
-
-                if (this.verbose) {
-                    this.log("stderr", `COBOL file ${target} compiled with exit code: ${code}`);
-                }
-
                 try {
                     this.map = new SourceMap(cwd, [target].concat(group));
                 } catch (e) {
-                    this.log('stderr', e);
+                    this.log('stderr', (<Error>e).toString());
                 }
 
                 if (this.verbose) {
                     this.log("stderr", this.map.toString());
                 }
 
-                target = nativePath.resolve(cwd, nativePath.basename(target));
+                target = path.resolve(cwd, path.basename(target));
                 target = target.split('.').slice(0, -1).join('.');
                 // FIXME: the following should prefix "cobcrun.exe" if in "module mode", see #13
                 if (process.platform === "win32") {
@@ -257,35 +144,29 @@ export class MI2 extends EventEmitter implements IDebugger {
                 }
 
                 this.process = ChildProcess.spawn(this.gdbpath, this.gdbArgs, { cwd: cwd, env: this.procEnv });
-                this.process.stdout.on("data", this.stdout.bind(this));
-                this.process.stderr.on("data", ((data) => {
-                    this.log("stderr", data);
-                }).bind(this));
-                this.process.on("exit", (() => {
-                    this.emit("quit");
-                }).bind(this));
-                this.process.on("error", ((err) => {
-                    this.emit("launcherror", err);
-                }).bind(this));
+                this.process.stdout.on("data", (data: string) => this.stdout(data));
+                this.process.stderr.on("data", (data: string) => { this.log("stderr", data); });
+                this.process.on("exit", () => { this.emit("quit"); });
+                this.process.on("error", (err) => { this.emit("launcherror", err); });
                 const promises = this.initCommands(target, targetargs, cwd);
                 Promise.all(promises).then(() => {
                     this.emit("debug-ready");
                     resolve(true);
                 }, reject);
-            });
+
         });
     }
 
     protected initCommands(target: string, targetargs: string, cwd: string) {
-        if (!nativePath.isAbsolute(target)) {
-            target = nativePath.join(cwd, target);
+        if (!path.isAbsolute(target)) {
+            target = path.join(cwd, target);
         }
         if (process.platform === "win32") {
-            cwd = nativePath.dirname(target);
+            cwd = path.dirname(target);
         }
 
         const cmds = [
-            this.sendCommand("gdb-set target-async on", false),
+            this.sendCommand("gdb-set mi-async on", false),
             this.sendCommand("gdb-set print repeats 1000", false),
             this.sendCommand("gdb-set args " + targetargs, false),
             this.sendCommand("gdb-set charset UTF-8", false),
@@ -295,19 +176,15 @@ export class MI2 extends EventEmitter implements IDebugger {
         return cmds;
     }
 
-    stdout(data) {
+    stdout(data: string) {
         if (this.verbose) {
             this.log("stderr", "stdout: " + data);
         }
-        if (typeof data == "string") {
-            this.buffer += data;
-        } else {
-            this.buffer += data.toString("utf8");
-        }
+        this.buffer += data;
         const end = this.buffer.lastIndexOf('\n');
         if (end != -1) {
-            this.onOutput(this.buffer.substr(0, end));
-            this.buffer = this.buffer.substr(end + 1);
+            this.onOutput(this.buffer.substring(0, end));
+            this.buffer = this.buffer.substring(end + 1);
         }
         if (this.buffer.length) {
             if (this.onOutputPartial(this.buffer)) {
@@ -316,19 +193,15 @@ export class MI2 extends EventEmitter implements IDebugger {
         }
     }
 
-    stderr(data) {
+    stderr(data: string) {
         if (this.verbose) {
             this.log("stderr", "stderr: " + data);
         }
-        if (typeof data == "string") {
-            this.errbuf += data;
-        } else {
-            this.errbuf += data.toString("utf8");
-        }
+        this.errbuf += data;
         const end = this.errbuf.lastIndexOf('\n');
         if (end != -1) {
-            this.onOutputStderr(this.errbuf.substr(0, end));
-            this.errbuf = this.errbuf.substr(end + 1);
+            this.onOutputStderr(this.errbuf.substring(0, end));
+            this.errbuf = this.errbuf.substring(end + 1);
         }
         if (this.errbuf.length) {
             this.logNoNewLine("stderr", this.errbuf);
@@ -336,7 +209,7 @@ export class MI2 extends EventEmitter implements IDebugger {
         }
     }
 
-    stdin(data: string, cb?: any) {
+    stdin(data: string, cb?: (_err: Error) => void) {
         if (this.isReady()) {
             if (this.verbose) {
                 this.log("stderr", "stdin: " + data);
@@ -345,14 +218,14 @@ export class MI2 extends EventEmitter implements IDebugger {
         }
     }
 
-    onOutputStderr(lines) {
-        lines = <string[]>lines.split('\n');
-        lines.forEach(line => {
+    onOutputStderr(lines: string) {
+        const linesArr = lines.split('\n');
+        linesArr.forEach(line => {
             this.log("stderr", line);
         });
     }
 
-    onOutputPartial(line) {
+    onOutputPartial(line: string) {
         if (couldBeOutput(line)) {
             this.logNoNewLine("stdout", line);
             return true;
@@ -361,7 +234,7 @@ export class MI2 extends EventEmitter implements IDebugger {
     }
 
     onOutput(linesStr: string) {
-        const lines = <string[]>linesStr.split('\n');
+        const lines = linesStr.split('\n');
         lines.forEach(line => {
             if (couldBeOutput(line)) {
                 if (!gdbRegex.exec(line)) {
@@ -381,7 +254,7 @@ export class MI2 extends EventEmitter implements IDebugger {
                     }
                 }
                 if (!handled && parsed.resultRecords && parsed.resultRecords.resultClass == "error") {
-                    this.log("stderr", parsed.result("msg") || line);
+                    this.log("stderr", <string>parsed.result("msg") || line);
                 }
                 if (parsed.outOfBandRecord) {
                     parsed.outOfBandRecord.forEach(async record => {
@@ -396,14 +269,14 @@ export class MI2 extends EventEmitter implements IDebugger {
                                 if (record.asyncClass == "running") {
                                     this.emit("running", parsed);
                                 } else if (record.asyncClass == "stopped") {
-                                    const reason = parsed.record("reason");
+                                    const reason = <string>parsed.record("reason");
                                     if (this.verbose) {
                                         this.log("stderr", "stop: " + reason);
                                     }
                                     if (reason == "breakpoint-hit") {
                                         if (!this.map.hasLineCobol(parsed.record('frame.fullname'), parseInt(parsed.record('frame.line')))) {
                                             if(this.lastStepCommand==this.continue && parsed.record("disp")=="del")
-                                                this.lastStepCommand();
+                                                void this.lastStepCommand();
                                             else
                                                 this.stepOver(); // 002 - stepInto/stepOut in routines with "perform" 
                                         } else {
@@ -416,14 +289,14 @@ export class MI2 extends EventEmitter implements IDebugger {
                                             this.emit("step-end", parsed);
                                         }
                                     } else if (reason == "end-stepping-range") {
-                                        if (!this.map.hasLineCobol(parsed.record('frame.fullname'), parseInt(parsed.record('frame.line')))) {
-                                            this.lastStepCommand();
+                                        if (!this.map.hasLineCobol(<string>parsed.record('frame.fullname'), parseInt(<string>parsed.record('frame.line')))) {
+                                            void this.lastStepCommand().then();
                                         } else {
                                             this.emit("step-end", parsed);
                                         }
                                     } else if (reason == "function-finished") {
-                                        if (!this.map.hasLineCobol(parsed.record('frame.fullname'), parseInt(parsed.record('frame.line')))) {
-                                            this.lastStepCommand();
+                                        if (!this.map.hasLineCobol(<string>parsed.record('frame.fullname'), parseInt(<string>parsed.record('frame.line')))) {
+                                            void this.lastStepCommand();
                                         } else {
                                             this.emit("step-out-end", parsed);
                                         }
@@ -433,12 +306,12 @@ export class MI2 extends EventEmitter implements IDebugger {
                                         this.emit("exited-normally", parsed);
                                     } else if (reason == "exited") { // exit with error code != 0
                                         if (this.verbose) {
-                                            this.log("stderr", "Program exited with code " + parsed.record("exit-code"));
+                                            this.log("stderr", "Program exited with code " + <string>parsed.record("exit-code"));
                                         }
                                         this.emit("quit", parsed);
                                     } else {
-                                        if (!this.map.hasLineCobol(parsed.record('frame.fullname'), parseInt(parsed.record('frame.line')))) {
-                                            this.continue();
+                                        if (!this.map.hasLineCobol(<string>parsed.record('frame.fullname'), parseInt(<string>parsed.record('frame.line')))) {
+                                            void this.continue();
                                         } else {
                                             if (this.verbose) {
                                                 this.log("stderr", "Not implemented stop reason (assuming exception): " + reason);
@@ -498,6 +371,7 @@ export class MI2 extends EventEmitter implements IDebugger {
                         expectingResultClass = "connected";
                     }
                 }
+
                 this.sendCommand(command).then((info) => {
                     if (info.resultRecords.resultClass == expectingResultClass) {
                         resolve(false);
@@ -511,24 +385,28 @@ export class MI2 extends EventEmitter implements IDebugger {
 
     stop() {
         const proc = this.process;
-        const to = setTimeout(() => {
-            process.kill(-proc.pid);
-        }, 1000);
-        this.process.on("exit", function (code) {
-            clearTimeout(to);
-        });
-        this.sendCommand("gdb-exit");
+        if (proc) {
+            const to = setTimeout(() => {
+                process.kill(-proc.pid);
+            }, 1000);
+            this.process.on("exit", function (_code) {
+                clearTimeout(to);
+            });
+        }
+        void this.sendCommand("gdb-exit");
     }
 
     detach() {
         const proc = this.process;
-        const to = setTimeout(() => {
-            process.kill(-proc.pid);
-        }, 1000);
-        this.process.on("exit", function (code) {
-            clearTimeout(to);
-        });
-        this.sendCommand("target-detach");
+        if (proc) {
+            const to = setTimeout(() => {
+                process.kill(-proc.pid);
+            }, 1000);
+            this.process.on("exit", function (_code) {
+                clearTimeout(to);
+            });
+        }
+        void this.sendCommand("target-detach");
     }
 
     interrupt(): Thenable<boolean> {
@@ -543,7 +421,7 @@ export class MI2 extends EventEmitter implements IDebugger {
     }
 
     continue(): Thenable<boolean> {
-        this.lastStepCommand = this.continue;
+        this.lastStepCommand = () => this.continue();
         if (this.verbose) {
             this.log("stderr", "continue");
         }
@@ -561,7 +439,7 @@ export class MI2 extends EventEmitter implements IDebugger {
      */
     // 002 - stepOver in routines with "perform"
     stepOver(): Thenable<boolean> {
-        this.lastStepCommand = this.stepOver;
+        this.lastStepCommand = () => this.stepOver();
         if (this.verbose) {
             this.log("stderr", "stepOver");
         }
@@ -586,7 +464,7 @@ export class MI2 extends EventEmitter implements IDebugger {
      * The command goes into the underlying function, then pauses at the first line.
      */
     stepInto(): Thenable<boolean> {
-        this.lastStepCommand = this.stepInto;
+        this.lastStepCommand = () => this.stepInto() ;
         if (this.verbose) {
             this.log("stderr", "stepInto");
         }
@@ -613,7 +491,7 @@ export class MI2 extends EventEmitter implements IDebugger {
      * The comand executes the function, then pauses at the next line outside.
      */
     stepOut(): Thenable<boolean> {
-        this.lastStepCommand = this.stepOut;
+        this.lastStepCommand = () => this.stepOut() ;
         if (this.verbose) {
             this.log("stderr", "stepOut");
         }
@@ -624,12 +502,12 @@ export class MI2 extends EventEmitter implements IDebugger {
         });
     }
 
-    goto(filename: string, line: number): Thenable<Boolean> {
+    goto(filename: string, line: number): Thenable<boolean> {
         if (this.verbose) {
             this.log("stderr", "goto");
         }
         return new Promise((resolve, reject) => {
-            const target: string = '"' + (filename ? escape(filename) + ":" : "") + line + '"';
+            const target: string = '"' + (filename ? escape(filename) + ":" : "") + line.toString() + '"';
             this.sendCommand("break-insert -t " + target).then(() => {
                 this.sendCommand("exec-jump " + target).then((info) => {
                     resolve(info.resultRecords.resultClass == "running");
@@ -663,12 +541,12 @@ export class MI2 extends EventEmitter implements IDebugger {
                 await this.sendCommand(`data-evaluate-expression "(void)strncpy(${cName}, \\"${finalValue}\\", ${variable.size})"`);
             }
         } catch (e) {
-            if (e.message.includes("No symbol \"cob_put_field_str\"")) {
+            if ((<Error>e).message.includes("No symbol \"cob_put_field_str\"")) {
                 this.hasCobPutFieldStringFunction = false;
                 return this.changeVariable(name, rawValue);
             }
             this.log("stderr", `Failed to set cob field value on ${functionName}.${name}`);
-            this.log("stderr", e.message);
+            this.log("stderr", (<Error>e).message);
             throw e;
         }
     }
@@ -684,11 +562,11 @@ export class MI2 extends EventEmitter implements IDebugger {
         return Promise.all(promisses);
     }
 
-    setBreakPointCondition(bkptNum, condition): Thenable<any> {
+    setBreakPointCondition(bkptNum: number, condition: string): Thenable<any> {
         if (this.verbose) {
             this.log("stderr", "setBreakPointCondition");
         }
-        return this.sendCommand("break-condition " + bkptNum + " " + condition);
+        return this.sendCommand("break-condition " + bkptNum.toString() + " " + condition);
     }
 
     addBreakPoint(breakpoint: Breakpoint): Thenable<[boolean, Breakpoint]> {
@@ -703,14 +581,14 @@ export class MI2 extends EventEmitter implements IDebugger {
             let location = "";
             if (breakpoint.countCondition) {
                 if (breakpoint.countCondition[0] == ">") {
-                    location += "-i " + numRegex.exec(breakpoint.countCondition.substr(1))[0] + " ";
+                    location += "-i " + numRegex.exec(breakpoint.countCondition.substring(1))[0] + " ";
                 } else {
                     const match = numRegex.exec(breakpoint.countCondition)[0];
                     if (match.length != breakpoint.countCondition.length) {
                         this.log("stderr", "Unsupported break count expression: '" + breakpoint.countCondition + "'. Only supports 'X' for breaking once after X times or '>X' for ignoring the first X breaks");
                         location += "-t ";
                     } else if (parseInt(match) != 0) {
-                        location += "-t -i " + parseInt(match) + " ";
+                        location += "-t -i " + parseInt(match).toString() + " ";
                     }
                 }
             }
@@ -723,20 +601,21 @@ export class MI2 extends EventEmitter implements IDebugger {
             if (breakpoint.raw) {
                 location += '"' + escape(breakpoint.raw) + '"';
             } else {
-                location += '"' + escape(map.fileC) + ":" + map.lineC + '"';
+                location += '"' + escape(map.fileC) + ":" + map.lineC.toString() + '"';
             }
 
             this.sendCommand("break-insert -f " + location).then((result) => {
                 if (result.resultRecords.resultClass == "done") {
-                    const bkptNum = parseInt(result.result("bkpt.number"));
-                    const map = this.map.getLineCobol(result.result("bkpt.file"), parseInt(result.result("bkpt.line")));
+                    const bkptNum = parseInt(<string>result.result("bkpt.number"));
+                    const bkptlocation = (<string>result.result("bkpt.original-location")).split(':');
+                    const map = this.map.getLineCobol(bkptlocation[0], parseInt(bkptlocation[1]));
                     const newBrk = {
                         file: map.fileCobol,
                         line: map.lineCobol,
                         condition: breakpoint.condition
                     };
                     if (breakpoint.condition) {
-                        this.setBreakPointCondition(bkptNum, breakpoint.condition).then((result) => {
+                        this.setBreakPointCondition(bkptNum, breakpoint.condition).then((result: MINode) => {
                             if (result.resultRecords.resultClass == "done") {
                                 this.breakpoints.set(newBrk, bkptNum);
                                 resolve([true, newBrk]);
@@ -759,24 +638,24 @@ export class MI2 extends EventEmitter implements IDebugger {
         if (this.verbose) {
             this.log("stderr", "removeBreakPoint");
         }
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve, _reject) => {
             if (!this.breakpoints.has(breakpoint)) {
                 return resolve(false);
             }
-            this.sendCommand("break-delete " + this.breakpoints.get(breakpoint)).then((result) => {
+            this.sendCommand("break-delete " + this.breakpoints.get(breakpoint).toString()).then((result: MINode) => {
                 if (result.resultRecords.resultClass == "done") {
                     this.breakpoints.delete(breakpoint);
                     resolve(true);
                 } else resolve(false);
-            });
+            }, (err: Error) => console.log(err));
         });
     }
 
-    clearBreakPoints(): Thenable<any> {
+    clearBreakPoints(): Thenable<unknown> {
         if (this.verbose) {
             this.log("stderr", "clearBreakPoints");
         }
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve, _reject) => {
             this.sendCommand("break-delete").then((result) => {
                 if (result.resultRecords.resultClass == "done") {
                     this.breakpoints.clear();
@@ -797,12 +676,12 @@ export class MI2 extends EventEmitter implements IDebugger {
                 return;
             }
             this.sendCommand("thread-info").then((result) => {
-                resolve(result.result("threads").map(element => {
+                resolve((<Thread[]>result.result("threads")).map(element => {
                     const ret: Thread = {
-                        id: parseInt(MINode.valueOf(element, "id")),
-                        targetId: MINode.valueOf(element, "target-id")
+                        id: parseInt(<string>MINode.valueOf(element, "id")),
+                        targetId: <string>MINode.valueOf(element, "target-id")
                     };
-                    const name = MINode.valueOf(element, "name");
+                    const name = <string>MINode.valueOf(element, "name");
                     if (name) {
                         ret.name = name;
                     }
@@ -821,11 +700,10 @@ export class MI2 extends EventEmitter implements IDebugger {
             command += ` --thread ${thread}`;
         }
         if (maxLevels) {
-            command += " 0 " + maxLevels;
+            command += " 0 " + maxLevels.toString();
         }
         const result = await this.sendCommand(command);
-        const stack = result.result("stack");
-        const ret: Stack[] = [];
+        const stack = <Stack[]>result.result("stack");
         return stack.map(element => {
             const level = MINode.valueOf(element, "@frame.level");
             const addr = MINode.valueOf(element, "@frame.addr");
@@ -833,7 +711,7 @@ export class MI2 extends EventEmitter implements IDebugger {
             const filename = MINode.valueOf(element, "@frame.file");
             let file: string = MINode.valueOf(element, "@frame.fullname");
             if (file) {
-                file = nativePath.normalize(file);
+                file = path.normalize(file);
             }
             const from = parseInt(MINode.valueOf(element, "@frame.from"));
 
@@ -846,7 +724,7 @@ export class MI2 extends EventEmitter implements IDebugger {
             const map = this.map.getLineCobol(file, line);
             return {
                 address: addr,
-                fileName: nativePath.basename(map.fileCobol),
+                fileName: path.basename(map.fileCobol),
                 file: map.fileCobol,
                 function: func || from,
                 level: level,
@@ -917,6 +795,7 @@ export class MI2 extends EventEmitter implements IDebugger {
         }
 
         let [finalExpression, variableNames] = parseExpression(expression, functionName, this.map);
+        finalExpression = `return ${finalExpression};`;
 
         for (const variableName of variableNames) {
             const variable = this.map.getVariableByC(`${functionName}.${variableName}`);
@@ -928,7 +807,7 @@ export class MI2 extends EventEmitter implements IDebugger {
         }
 
         try {
-            const result = `${eval(finalExpression)}`;
+            const result = Function(`"use strict"; ${finalExpression}`)();
             if (/[^0-9.\-+]/g.test(result)) {
                 return `"${result}"`;
             }
@@ -1051,7 +930,7 @@ export class MI2 extends EventEmitter implements IDebugger {
             if (xterm_device === "") {
                 let sleepVal = this.hashCode(target);
                 this.log('stdio', 'TTY: sleep ' + sleepVal + ';');
-                // wls - const wsl_process = ChildProcess.exec("cmd.exe /c start bash -c 'sleep "+sleepVal+"'");                      
+                // wls - const wsl_process = ChildProcess.exec("cmd.exe /c start bash -c 'sleep "+sleepVal+"'");
                 if (isWslSsh) {
                     this.createTerminal("vscode", sleepVal, target);
                 } else
@@ -1066,7 +945,7 @@ export class MI2 extends EventEmitter implements IDebugger {
                     try_find++;
                     if (xterm_device != "") break;
                 }
-                if (xterm_device === "") this.log("stderr", "tty: Install 'xterm' to use gdb's tty option\n");
+                if (xterm_device === "") this.log("stderr", "tty: Install a terminal to use gdb's tty option\n");
             }
             if (xterm_device.includes("pts")) {
                 this.gdbArgs.push("--tty=" + xterm_device);
@@ -1114,24 +993,113 @@ export class MI2 extends EventEmitter implements IDebugger {
         return strCode;
     }
 
+    isTerminalInstalled(terminalCommand: string): boolean {
+        try {
+            ChildProcess.execSync(`command -v ${terminalCommand}`);
+            return true;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    createXFCETerminal(sleepVal, target) {
+        let dispTarget = (target.length > 50) ? "..." + target.substr(target.length - 50, target.length) : target;
+        let param = "bash -c 'echo \"GnuCOBOL DEBUG\"; sleep " + sleepVal + ";'";
+        const xfce4_terminal_args = [
+            "--title", "GnuCOBOL Debug - " + dispTarget,
+            "--font=DejaVu Sans Mono 14",
+            "--command", param
+        ]
+        const xfce_process = ChildProcess.spawn("xfce4-terminal", xfce4_terminal_args, {
+            detached: true,
+            stdio: 'ignore'
+        });
+        xfce_process.unref();
+    }
+
+    createKDETerminal(sleepVal, target) {
+        let dispTarget = (target.length > 50) ? "..." + target.substr(target.length - 50, target.length) : target;
+        let param = "bash -c 'echo \"GnuCOBOL DEBUG\"; sleep " + sleepVal + ";'";
+        const konsole_args = [
+            "--title", "GnuCOBOL Debug - " + dispTarget,
+            "--separate",
+            "--nofork",
+            "--hold",
+            "-e",
+            param
+        ]
+        const kde_process = ChildProcess.spawn("konsole", konsole_args, {
+            detached: true,
+            stdio: 'ignore'
+        });
+        kde_process.unref();
+    }
+
+    createGNOMETerminal(sleepVal, target) {
+        let dispTarget = (target.length > 50) ? "..." + target.substr(target.length - 50, target.length) : target;
+        const gnome_terminal_args = [
+            "--title", "GnuCOBOL Debug - " + dispTarget,
+            "--",
+            "bash", "-c","echo 'GnuCOBOL DEBUG';" + "sleep " + sleepVal + ";"
+        ]
+        const gnome_process = ChildProcess.spawn("gnome-terminal", gnome_terminal_args, {
+            detached: true,
+            stdio: 'ignore',
+        });
+        gnome_process.unref();
+    }
+
+    createXtermTerminal(sleepVal, target) {
+        let dispTarget = (target.length > 50) ? "..." + target.substr(target.length - 50, target.length) : target;
+        const xterm_args = [
+            "-title", "GnuCOBOL Debug - " + dispTarget,
+            "-fa", "DejaVu Sans Mono",
+            "-fs", "14",
+            "-e", "/usr/bin/tty;" +
+            "echo 'GnuCOBOL DEBUG';" +
+            "sleep " + sleepVal + ";"
+        ]
+        const xterm_process = ChildProcess.spawn("xterm", xterm_args, {
+            detached: true,
+            stdio: 'ignore',
+        });
+        xterm_process.unref();
+    }
+
     // Opens a terminal to show the application screen - gdbtty
     createTerminal(gdbtty, sleepVal, target) {
+        let findTerminal = true;
         if (gdbtty != "vscode") {
-            let dispTarget = (target.length > 50) ? "..." + target.substr(target.length - 50, target.length) : target;
-            const xterm_args = [
-                "-title", "GnuCOBOL Debug - " + dispTarget,
-                "-fa", "DejaVu Sans Mono",
-                "-fs", "14",
-                "-e", "/usr/bin/tty;" +
-                "echo 'GnuCOBOL DEBUG';" +
-                "sleep " + sleepVal + ";"
-            ]
-
-            const xterm_process = ChildProcess.spawn("xterm", xterm_args, {
-                detached: true,
-                stdio: 'ignore',
-            });
-            xterm_process.unref();
+            if (typeof gdbtty === 'string' && gdbtty!="external") {  
+                if(this.isTerminalInstalled(gdbtty)){
+                    findTerminal = false;
+                    switch (gdbtty) {
+                        case "xterm":
+                            this.createXtermTerminal(sleepVal, target);
+                            break;
+                        case "gnome-terminal":
+                            this.createGNOMETerminal(sleepVal, target);
+                            break;
+                        case "konsole":
+                            this.createKDETerminal(sleepVal, target);
+                            break;
+                        case "xfce4-terminal":
+                            this.createXFCETerminal(sleepVal, target);
+                            break;
+                    }
+                }
+            }
+            if(findTerminal){
+                if(this.isTerminalInstalled("xterm")){
+                    this.createXtermTerminal(sleepVal, target);
+                }else if(this.isTerminalInstalled("gnome-terminal")){
+                    this.createGNOMETerminal(sleepVal, target);
+                }else if(this.isTerminalInstalled("xfce4-terminal")){
+                    this.createXFCETerminal(sleepVal, target);
+                }else if(this.isTerminalInstalled("konsole")){
+                    this.createKDETerminal(sleepVal, target);
+                }
+            }
         } else {
             let terminal = this.selectTerminal();
             if (!terminal) {
