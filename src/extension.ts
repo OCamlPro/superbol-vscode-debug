@@ -13,8 +13,8 @@ export function activate(context: vscode.ExtensionContext) {
     const provider = new GdbConfigurationProvider();
     const factory = new GdbAdapterDescriptorFactory(new CoverageStatus(), new GDBDebugSession());
     context.subscriptions.push(
-        vscode.debug.registerDebugConfigurationProvider('gdb', provider),
-        vscode.debug.registerDebugAdapterDescriptorFactory('gdb', factory, vscode.DebugConfigurationProviderTriggerKind.Dynamic),
+        vscode.debug.registerDebugConfigurationProvider('superbol-gdb', provider),
+        vscode.debug.registerDebugAdapterDescriptorFactory('superbol-gdb', factory, vscode.DebugConfigurationProviderTriggerKind.Dynamic),
         vscode.languages.registerEvaluatableExpressionProvider('GnuCOBOL', new GnuCOBOLEvalExpressionFactory()),
         vscode.languages.registerEvaluatableExpressionProvider('GnuCOBOL31', new GnuCOBOLEvalExpressionFactory()),
         vscode.languages.registerEvaluatableExpressionProvider('GnuCOBOL3.1', new GnuCOBOLEvalExpressionFactory()),
@@ -29,14 +29,14 @@ export function deactivate() {
 }
 
 class GdbConfigurationProvider implements vscode.DebugConfigurationProvider {
-    resolveDebugConfiguration(_folder: vscode.WorkspaceFolder | undefined, config: vscode.DebugConfiguration, _token?: vscode.CancellationToken): vscode.ProviderResult<vscode.DebugConfiguration> {
+    public resolveDebugConfiguration(_folder: vscode.WorkspaceFolder | undefined, config: vscode.DebugConfiguration, _token?: vscode.CancellationToken): vscode.ProviderResult<vscode.DebugConfiguration> {
         config.gdbargs = ["-q", "--interpreter=mi2"];
         const settings = new DebuggerSettings();
         if (config.name === undefined) {
             config.name = "SuperBOL: default debug";
         }
         if (config.type === undefined) {
-            config.type = "gdb";
+            config.type = "superbol-gdb";
         }
         if (config.request === undefined) {
             config.request = "launch";
@@ -79,13 +79,13 @@ class GdbConfigurationProvider implements vscode.DebugConfigurationProvider {
         return config;
     }
 
-    provideDebugConfigurations(
+    public provideDebugConfigurations(
       _folder: vscode.WorkspaceFolder,
       _token?: vscode.CancellationToken):
         vscode.ProviderResult<vscode.DebugConfiguration[]> {
         const launchConfigDefault: vscode.DebugConfiguration = {
           name: "SuperBOL: debug (launch)",
-          type: "gdb",
+          type: "superbol-gdb",
           request: "launch",
           preLaunchTask: "SuperBOL: build (debug)",
           target: "${file}",
@@ -99,7 +99,7 @@ class GdbConfigurationProvider implements vscode.DebugConfigurationProvider {
 
         const attachLocalConfiguration: vscode.DebugConfiguration = {
           name: "SuperBOL: debug (attach local)",
-          type: "gdb",
+          type: "superbol-gdb",
           request: "attach",
           pid: "${input:pid}",
           target: "${file}",
@@ -111,7 +111,7 @@ class GdbConfigurationProvider implements vscode.DebugConfigurationProvider {
 
         const attachRemoteConfiguration: vscode.DebugConfiguration = {
           name: "SuperBOL: debug (attach remote)",
-          type: "gdb",
+          type: "superbol-gdb",
           request: "attach",
           "remote-debugger": "${input:remote-debugger}",
           target: "${file}",
