@@ -67,6 +67,7 @@ const dummyLine = new Line('', 0, '', '', 0, '');
 
 export class SourceMap {
     private cwd: string;
+    public sourceDirs: string[] = [];
     private lines: Line[] = new Array<Line>();
     private variablesByCobol = new Map<string, DebuggerVariable>();
     private variablesByC = new Map<string, DebuggerVariable>();
@@ -77,11 +78,38 @@ export class SourceMap {
     private performLine: number = -1; // 002 - stepOver in routines with "perform"
     private isVersion2_2_or_3_1_1: boolean = false;
 
-    constructor(cwd: string, filesCobol: string[], private log: Function) {
+    constructor(cwd: string, filesCobol: string[], sourceDirs: string[], private log: Function) {
         this.cwd = fs.realpathSync(nativePathFromPath.resolve(cwd));
+        this.log(`Source dirs: ${sourceDirs}`);
+        for (const cSourceDir of sourceDirs) {
+            this.log(`Trying to resolve ${cSourceDir}`);
+            let resolved_path = nativePathFromPath.resolve(this.cwd, cSourceDir);
+            this.log(`Checking for ${resolved_path}`);
+            if (fs.existsSync(resolved_path)) {
+                this.sourceDirs.push(fs.realpathSync(resolved_path));
+            }
+        }
+
+        this.sourceDirs.push(this.cwd);
+
         filesCobol.forEach(e => {
-            this.register (cFile (e));
+            let c_file = this.lookupSourceFile (cFile (e));
+            if (c_file) {
+                this.register (c_file);
+            }
         });
+
+        this.log(`Resolved source dirs: ${this.sourceDirs}`);
+    }
+
+    private lookupSourceFile (file: string) : string | undefined {
+        for (const dir of this.sourceDirs) {
+            const filePath = nativePath.join (dir, file);
+            if (fs.existsSync (filePath)) {
+                return filePath;
+            }
+        }
+        return;
     }
 
     public addLib (libFile: string) : boolean {
@@ -89,12 +117,13 @@ export class SourceMap {
             return false;
         }
         this.loadedLibs.add (libFile);
-        const c = nativePath.resolve (this.cwd, cFile (libFile));
-        if (!fs.existsSync (c)) {
-           return false;
+        // this.log(`Loading ${libFile}`);
+        const c = this.lookupSourceFile (cFile (libFile));
+        if (c) {
+            this.register (c);
+            return true;
         }
-        this.register (c);
-        return true;
+        return false;
     }
 
     public remLib (libFile: string) : boolean {
@@ -102,8 +131,15 @@ export class SourceMap {
             return false;
         }
         this.loadedLibs.delete (libFile);
-        this.unregister (nativePath.resolve (this.cwd, cFile (libFile)));
-        return true;
+        // this.log(`Unloading ${libFile}`);
+        // Note: assumes there was no FS changes in the meantime.
+        // Cleaner way would be to record a mapping between libs and source files.
+        const c = this.lookupSourceFile (cFile (libFile));
+        if (c) {
+            this.unregister (c);
+            return true;
+        }
+        return false;
     }
 
     private unregister (givenFileC: string) : void {
@@ -131,6 +167,7 @@ export class SourceMap {
     }
 
     private register (givenFileC: string) : void {
+        // this.log(`Parsing ${givenFileC}`);
         void this.parse (givenFileC); // just parse the file.
     }
 
@@ -152,7 +189,7 @@ export class SourceMap {
             let match = fileCobolRegex.exec(line);
             if (match) {
                 if (!nativePath.isAbsolute(match[1])) {
-                    fileCobol = nativePath.resolve(this.cwd, match[1]);
+                    fileCobol = nativePath.resolve(nativePathFromPath.dirname (fileC), match[1]);
                 } else {
                     fileCobol = match[1];
                 }
@@ -219,7 +256,9 @@ export class SourceMap {
             }
             match = fileIncludeRegex.exec(line);
             if (match) {
-                functionName = this.parse(match[1], prevLine, rootFileC, functionName);
+                // Note: we assume the included file is in the same dir as the current file.
+                const filename = nativePath.resolve (nativePathFromPath.dirname (rootFileC), match[1]);
+                functionName = this.parse(filename, prevLine, rootFileC, functionName);
             }
             match = versionRegex.exec(line);
             if (match) {

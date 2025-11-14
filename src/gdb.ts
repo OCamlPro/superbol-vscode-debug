@@ -41,6 +41,7 @@ export interface LaunchRequestArguments extends DebugProtocol.LaunchRequestArgum
     gdbtty: boolean;
     cobcrunPath: string;
     useCobcrun: boolean;
+    sourceDirs: string[];
 }
 
 export interface AttachRequestArguments extends DebugProtocol.LaunchRequestArguments {
@@ -54,6 +55,7 @@ export interface AttachRequestArguments extends DebugProtocol.LaunchRequestArgum
     verbose: boolean;
     pid: string;
     remoteDebugger: string;
+    sourceDirs: string[];
 }
 
 export class GDBDebugSession extends DebugSession {
@@ -82,17 +84,7 @@ export class GDBDebugSession extends DebugSession {
         this.started = false;
         this.attached = false;
 
-        this.miDebugger =
-            new MI2(
-                args.gdbpath,
-                args.gdbargs,
-                args.env,
-                args.verbose,
-                args.noDebug,
-                args.gdbtty,
-                args.cobcrunPath,
-                args.useCobcrun,
-            );
+        this.miDebugger = new MI2(args.gdbpath, args.gdbargs, args.env, args.verbose, args.noDebug, args.gdbtty, args.cobcrunPath, args.useCobcrun, args.sourceDirs);
         this.miDebugger.on("launcherror", (err: Error) => this.launchError(err));
         this.miDebugger.on("quit", () => this.quitEvent());
         this.miDebugger.on("exited-normally", () => this.quitEvent());
@@ -111,7 +103,7 @@ export class GDBDebugSession extends DebugSession {
         this.crashed = false;
         this.debugReady = false;
         this.useVarObjects = false;
-        // Run in the target executables' directory, unless specificed.
+        // Run in the target executables' directory, unless specificed; becomes '.' if target is a module name.
         let cwd = args.cwd ?? path.dirname (args.target);
         this.miDebugger.load(cwd, args.target, args.arguments, args.group, args.gdbtty).then(
         /*onfulfilled:*/ () => {
@@ -146,17 +138,7 @@ export class GDBDebugSession extends DebugSession {
         this.attached = true;
         this.started = false;
 
-        this.miDebugger =
-            new MI2(
-                args.gdbpath,
-                args.gdbargs,
-                args.env,
-                args.verbose,
-                false,
-                false,
-                "",
-                false
-            );
+        this.miDebugger = new MI2(args.gdbpath, args.gdbargs, args.env, args.verbose, false, false, "", false, args.sourceDirs);
         this.miDebugger.on("launcherror", (err: Error) => this.launchError(err));
         this.miDebugger.on("quit", () => this.quitEvent());
         this.miDebugger.on("exited-normally", () => this.quitEvent());
@@ -254,7 +236,7 @@ export class GDBDebugSession extends DebugSession {
 
     protected launchError(err: Error) {
         this.handleMsg("stderr", "Could not start debugger process\n");
-        this.handleMsg("stderr", err.toString() + "\n");
+        this.handleMsg("stderr", err.toString() + "\n" + err.stack + "\n");
         this.quitEvent();
     }
 
