@@ -81,14 +81,14 @@ export class MI2 extends EventEmitter implements IDebugger {
 
                 this.debug(() => this.map.toString("created"));
 
-                if (fs.existsSync (target)) { // assume module name otherwise...
+                if (!this.useCobcrun) {
                     target = path.resolve(cwd, path.basename(target));
                     target = target.split('.').slice(0, -1).join('.');
-                }
-                // FIXME: the following should prefix "cobcrun.exe" if in "module mode", see #13
-                // FIXME: if we need this code twice then add a comment why, otherwise move to a new function
-                if (process.platform === "win32") {
-                    target = target + '.exe';
+                    // FIXME: the following should prefix "cobcrun.exe" if in "module mode", see #13
+                    // FIXME: if we need this code twice then add a comment why, otherwise move to a new function
+                    if (process.platform === "win32") {
+                        target = target + '.exe';
+                    }
                 }
 
                 // 001-gdbtty - Extension for debugging on a separate tty using xterm - start

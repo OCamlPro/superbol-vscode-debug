@@ -1,5 +1,7 @@
 ## Next
 
+* Enable specification of directories where COBOL and C source files are to be found (option `sourceDirs`) [PR #20](https://github.com/ocamlpro/superbol-vscode-debug/pull/20)
+* Enable use of `cobcrun` module loaded [PR #19](https://github.com/ocamlpro/superbol-vscode-debug/pull/19)
 * Avoid forcing a prelaunch task on attach mode [PR #23](https://github.com/ocamlpro/superbol-vscode-debug/pull/23)
 * Fix first line of subprograms in source mapping [PR #22](https://github.com/ocamlpro/superbol-vscode-debug/pull/22)
 * Fix detection of attach target that is given as a PID [PR #21](https://github.com/ocamlpro/superbol-vscode-debug/pull/21)
