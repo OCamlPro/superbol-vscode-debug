@@ -100,8 +100,7 @@ class GdbConfigurationProvider implements vscode.DebugConfigurationProvider {
           type: "superbol-gdb",
           request: "attach",
           pid: "${input:pid}",
-          target: "${file}",
-          arguments: ""
+          target: "${file}"
         };
 
         const attachRemoteConfiguration: vscode.DebugConfiguration = {
@@ -109,8 +108,7 @@ class GdbConfigurationProvider implements vscode.DebugConfigurationProvider {
           type: "superbol-gdb",
           request: "attach",
           remoteDebugger: "${input:remoteDebugger}",
-          target: "${file}",
-          arguments: ""
+          target: "${file}"
         }
 
         return [
