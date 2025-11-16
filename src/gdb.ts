@@ -571,7 +571,8 @@ export class GDBDebugSession extends DebugSession {
             this.miDebugger.evalExpression(args.expression, threadId, level).then((res) => {
                 response.body = {
                     variablesReference: 0,
-                    result: !!res ? res : "not available"
+                    presentationHint: { kind: 'data' },
+                    result: res ?? "not available"
                 };
                 this.sendResponse(response);
             }, (msg: Error) => {
@@ -587,6 +588,7 @@ export class GDBDebugSession extends DebugSession {
                 else
                     response.body = {
                         result: JSON.stringify(output),
+                        // presentationHint: { kind: 'data' },
                         variablesReference: 0
                     };
                 this.sendResponse(response);
