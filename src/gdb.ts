@@ -440,6 +440,9 @@ export class GDBDebugSession extends DebugSession {
                 const variables: DebugProtocol.Variable[] = [];
                 const [threadId, level] = this.frameIdToThreadAndLevel(id);
                 const stackVariables = await this.miDebugger.getStackVariables(threadId, level);
+                if (stackVariables === undefined) {
+                    this.sendResponse(response);
+                }
                 globalThis.varGlobal = [];
                 for (const stackVariable of stackVariables) {
                     let reference = 0;
@@ -482,6 +485,9 @@ export class GDBDebugSession extends DebugSession {
             try {
                 // TODO: this evals on an (effectively) unknown thread for multithreaded programs.
                 const stackVariable = await this.miDebugger.evalCobField(id, 0, 0);
+                if (stackVariable === undefined) {
+                    this.sendResponse(response); // fail early and silently
+                }
 
                 let variables: DebugProtocol.Variable[] = [];
 
@@ -499,7 +505,7 @@ export class GDBDebugSession extends DebugSession {
                     let value = child.displayableType;
                     if (!this.showVariableDetails) {
                         const evaluatedChild = await this.miDebugger.evalCobField(childId, 0, 0);
-                        value = evaluatedChild.value || "null";
+                        value = evaluatedChild !== undefined ? (evaluatedChild.value || "null") : "?";
                     }
 
                     variables.push({
