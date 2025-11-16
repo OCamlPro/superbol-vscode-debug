@@ -92,11 +92,7 @@ class GdbConfigurationProvider implements vscode.DebugConfigurationProvider {
           request: "launch",
           preLaunchTask: "SuperBOL: build (debug)",
           target: "${file}",
-          arguments: "",
-          group: [],
-          coverage: false,
-          verbose: false,
-          gdbtty: false
+          arguments: ""
         };
 
         const attachLocalConfiguration: vscode.DebugConfiguration = {
@@ -105,9 +101,7 @@ class GdbConfigurationProvider implements vscode.DebugConfigurationProvider {
           request: "attach",
           pid: "${input:pid}",
           target: "${file}",
-          arguments: "",
-          group: [],
-          verbose: false
+          arguments: ""
         };
 
         const attachRemoteConfiguration: vscode.DebugConfiguration = {
@@ -116,9 +110,7 @@ class GdbConfigurationProvider implements vscode.DebugConfigurationProvider {
           request: "attach",
           remoteDebugger: "${input:remoteDebugger}",
           target: "${file}",
-          arguments: "",
-          group: [],
-          verbose: false
+          arguments: ""
         }
 
         return [
