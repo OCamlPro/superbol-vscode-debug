@@ -1,5 +1,6 @@
 ## Next
 
+* Fix evaluation of expressions with binary-typed fields [PR #26](https://github.com/ocamlpro/superbol-vscode-debug/pull/26)
 * Silence some errors due to requests that are handled while the program is running [PR #25](https://github.com/ocamlpro/superbol-vscode-debug/pull/25)
 * Enable specification of directories where COBOL and C source files are to be found (option `sourceDirs`) [PR #20](https://github.com/ocamlpro/superbol-vscode-debug/pull/20)
 * Enable use of `cobcrun` module loaded [PR #19](https://github.com/ocamlpro/superbol-vscode-debug/pull/19)

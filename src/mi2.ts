@@ -876,10 +876,7 @@ export class MI2 extends EventEmitter implements IDebugger {
 
         try {
             const result = Function(`"use strict"; ${finalExpression}`)();
-            if (/[^0-9.\-+]/g.test(result)) {
-                return `"${result}"`;
-            }
-            return result;
+            return JSON.stringify(result); // deals with escapes.
         } catch (e) {
             this.debug(e.message);
             return `Failed to evaluate ${expression}`;
