@@ -1,5 +1,6 @@
 ## Next
 
+* Support cases where the COBOL source code and the corresponding C files are in distinct directories [PR #29](https://github.com/ocamlpro/superbol-vscode-debug/pull/29)
 * Remove unneeded fields from auto-generated configurations [PR #27](https://github.com/ocamlpro/superbol-vscode-debug/pull/27) [PR #28](https://github.com/ocamlpro/superbol-vscode-debug/pull/28)
 * Fix evaluation of expressions with binary-typed fields [PR #26](https://github.com/ocamlpro/superbol-vscode-debug/pull/26)
 * Silence some errors due to requests that are handled while the program is running [PR #25](https://github.com/ocamlpro/superbol-vscode-debug/pull/25)
