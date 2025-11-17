@@ -188,10 +188,21 @@ export class SourceMap {
             const line = row.toString();
             let match = fileCobolRegex.exec(line);
             if (match) {
-                if (!nativePath.isAbsolute(match[1])) {
-                    fileCobol = nativePath.resolve(nativePathFromPath.dirname (fileC), match[1]);
+                const filename = match[1];
+                const filebase = nativePath.basename (filename);
+                if (!nativePath.isAbsolute(filename)) {
+                    fileCobol = nativePath.resolve(nativePathFromPath.dirname (fileC), filename);
+                    if (!fs.existsSync(fileCobol)) {
+                        fileCobol = nativePath.resolve(nativePathFromPath.dirname (fileC), filebase);
+                    }
+                    if (!fs.existsSync(fileCobol)) {
+                        fileCobol = this.lookupSourceFile (filename);
+                    }
                 } else {
-                    fileCobol = match[1];
+                    fileCobol = filename;
+                }
+                if (!fs.existsSync(fileCobol)) {
+                    fileCobol = this.lookupSourceFile (filebase)
                 }
             }
             match = functionRegex.exec(line);
