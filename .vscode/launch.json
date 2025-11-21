@@ -7,13 +7,12 @@
 			"request": "launch",
 			"runtimeExecutable": "${execPath}",
 			"args": [
-				"--extensionDevelopmentPath=${workspaceRoot}",
+				"--extensionDevelopmentPath=${workspaceFolder}",
 				"--trace-deprecation"
 			],
-			"stopOnEntry": false,
 			"sourceMaps": true,
 			"outFiles": [
-				"${workspaceRoot}/out/**/*.js"
+				"${workspaceFolder}/out/test/**/*.js"
 			],
 			"preLaunchTask": "npm",
 			"internalConsoleOptions": "openOnSessionStart"
@@ -28,8 +27,9 @@
 				"--extensionDevelopmentPath=${workspaceFolder}",
 				"--extensionTestsPath=${workspaceFolder}/out/test/suite/index"
 			],
+			"sourceMaps": true,
 			"outFiles": [
-				"${workspaceRoot}/out/**/*.js"
+				"${workspaceFolder}/out/test/**/*.js"
 			],
 			"preLaunchTask": "npm",
 			"internalConsoleOptions": "openOnSessionStart"
