@@ -14,15 +14,13 @@ export function activate(context: vscode.ExtensionContext) {
     const factory = new GdbAdapterDescriptorFactory(new CoverageStatus(), new GDBDebugSession());
     context.subscriptions.push(
         vscode.debug.registerDebugConfigurationProvider('superbol-gdb', provider),
-        vscode.debug.registerDebugAdapterDescriptorFactory('superbol-gdb', factory, vscode.DebugConfigurationProviderTriggerKind.Dynamic),
+        vscode.debug.registerDebugAdapterDescriptorFactory('superbol-gdb', factory),
         vscode.languages.registerEvaluatableExpressionProvider('GnuCOBOL', new GnuCOBOLEvalExpressionFactory()),
         vscode.languages.registerEvaluatableExpressionProvider('GnuCOBOL31', new GnuCOBOLEvalExpressionFactory()),
         vscode.languages.registerEvaluatableExpressionProvider('GnuCOBOL3.1', new GnuCOBOLEvalExpressionFactory()),
         vscode.languages.registerEvaluatableExpressionProvider('GnuCOBOL32', new GnuCOBOLEvalExpressionFactory()),
         vscode.languages.registerEvaluatableExpressionProvider('GnuCOBOL3.2', new GnuCOBOLEvalExpressionFactory()),
-        vscode.languages.registerEvaluatableExpressionProvider('COBOL', new GnuCOBOLEvalExpressionFactory()),
-        factory,
-    );
+        vscode.languages.registerEvaluatableExpressionProvider('COBOL', new GnuCOBOLEvalExpressionFactory()));
 }
 
 export function deactivate() {
