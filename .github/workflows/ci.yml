@@ -20,6 +20,12 @@ jobs:
         with:
            node-version-file: 'package.json'
 
+      - name: Cache VSCode test directory
+        uses: actions/cache@v4
+        with:
+           path: .vscode-test
+           key: ${{ runner.os }}-vscode-test-${{ hashFiles('package-lock.json') }}
+
       - name: Install dependencies
         run: npm install
 
