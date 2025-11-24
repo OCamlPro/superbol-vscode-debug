@@ -78,7 +78,7 @@ export class SourceMap {
     private performLine: number = -1; // 002 - stepOver in routines with "perform"
     private isVersion2_2_or_3_1_1: boolean = false;
 
-    constructor(cwd: string, filesCobol: string[], sourceDirs: string[], private log: Function) {
+    constructor(cwd: string, filesCobol: string[], sourceDirs: string[], private log: Function = (_ => {})) {
         this.cwd = fs.realpathSync(nativePathFromPath.resolve(cwd));
         this.log(`Source dirs: ${sourceDirs}`);
         for (const cSourceDir of sourceDirs) {

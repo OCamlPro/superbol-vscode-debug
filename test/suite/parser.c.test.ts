@@ -6,8 +6,8 @@ suite("C code parse", () => {
 	const cwd = nativePath.resolve(__dirname, '../../../test/resources');
 	test("Minimal", () => {
 		const c = nativePath.resolve(cwd, 'hello.c');
-		const cobol = '/home/olegs/projects/gnucobol-debug/test/resources/hello.cbl';
-		const parsed = new SourceMap(cwd, [c]);
+		const cobol = nativePath.resolve(cwd, 'hello.cbl');
+		const parsed = new SourceMap(cwd, [c], [cwd]);
 
 		assert.equal(3, parsed.getLinesCount());
 		assert.equal(3, parsed.getVariablesCount());
@@ -24,8 +24,8 @@ suite("C code parse", () => {
 	});
 	test("GnuCOBOL 3.1.1", () => {
 		const c = nativePath.resolve(cwd, 'hello3.c');
-		const cobol = '/home/olegs/projects/gnucobol-debug/test/resources/hello3.cbl';
-		const parsed = new SourceMap(cwd, [c]);
+		const cobol = nativePath.resolve(cwd, 'hello3.cbl');
+		const parsed = new SourceMap(cwd, [c], [cwd]);
 
 		assert.equal(3, parsed.getLinesCount());
 		assert.equal(3, parsed.getVariablesCount());
@@ -47,7 +47,7 @@ suite("C code parse", () => {
 		const cSample = nativePath.resolve(cwd, 'sample.c');
 		const cSubSample = nativePath.resolve(cwd, 'subsample.c');
 		const cSubSubSample = nativePath.resolve(cwd, 'subsubsample.c');
-		const parsed = new SourceMap(cwd, [cSample, cSubSample, cSubSubSample]);
+		const parsed = new SourceMap(cwd, [cSample, cSubSample, cSubSubSample], [cwd]);
 
 		assert.equal(7, parsed.getLinesCount());
 		assert.equal(14, parsed.getVariablesCount());
@@ -65,7 +65,7 @@ suite("C code parse", () => {
 	});
 	test("Variables Hierarchy", () => {
 		const c = nativePath.resolve(cwd, 'petstore.c');
-		const parsed = new SourceMap(cwd, [c]);
+		const parsed = new SourceMap(cwd, [c], [cwd]);
 
 		assert.equal('b_14', parsed.getVariableByCobol('petstore_.WS-BILL').cName);
 		assert.equal('f_15', parsed.getVariableByCobol('petstore_.WS-BILL.TOTAL-QUANTITY').cName);
@@ -74,7 +74,7 @@ suite("C code parse", () => {
 	});
 	test("Find variables by function and COBOL name", () => {
 		const c = nativePath.resolve(cwd, 'petstore.c');
-		const parsed = new SourceMap(cwd, [c]);
+		const parsed = new SourceMap(cwd, [c], [cwd]);
 
 		assert.equal('f_15', parsed.findVariableByCobol('petstore_', 'TOTAL-QUANTITY').cName);
 		assert.equal('f_15', parsed.findVariableByCobol('petstore_', 'WS-BILL.TOTAL-QUANTITY').cName);
@@ -85,7 +85,7 @@ suite("C code parse", () => {
 	});
 	test("Attributes", () => {
 		const c = nativePath.resolve(cwd, 'datatypes.c');
-		const parsed = new SourceMap(cwd, [c]);
+		const parsed = new SourceMap(cwd, [c], [cwd]);
 
 		for (let variable of parsed.getVariablesByCobol()) {
 			assert.notEqual(variable.attribute, null);
@@ -108,7 +108,7 @@ suite("C code parse", () => {
 	});
 	test("Multiple Functions", () => {
 		const c = nativePath.resolve(cwd, 'func.c');
-		const parsed = new SourceMap(cwd, [c]);
+		const parsed = new SourceMap(cwd, [c], [cwd]);
 
 		const f_6 = parsed.getVariableByC('func_.f_6');
 		assert.equal('argA', f_6.cobolName);

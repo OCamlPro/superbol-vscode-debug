@@ -12,14 +12,14 @@
 	"version": "3.32.0",
 	"publisher": "OCamlPro SAS",
 	"contributors": [
-	{
-		"name": "Emilien Lemaire",
-		"email": "emilien.lemaire@ocamlpro.com"
-	},
-	{
-		"name": "Olegs Kunicins",
-		"email": "olegs.kunicins@gmail.com"
-	}
+		{
+			"name": "Emilien Lemaire",
+			"email": "emilien.lemaire@ocamlpro.com"
+		},
+		{
+			"name": "Olegs Kunicins",
+			"email": "olegs.kunicins@gmail.com"
+		}
 	],
 	"license": "GPL-3.0",
 	"icon": "icon.png",
@@ -52,7 +52,10 @@
 		"debuggers": [
 			{
 				"type": "superbol-gdb",
-				"languages": ["cobol", "COBOL"],
+				"languages": [
+					"cobol",
+					"COBOL"
+				],
 				"program": "./out/src/gdb.js",
 				"runtime": "node",
 				"label": "SuperBOL Debugger for GnuCOBOL",
@@ -257,26 +260,30 @@
 		"prepare": "tsc -p ./",
 		"compile": "tsc -p ./",
 		"watch": "tsc -w -p ./",
-		"test": "mocha -u tdd ./out/test/",
+		"test": "npm run compile && npm exec vscode-test",
 		"lint": "eslint -c .eslintrc.js --ext .ts ./"
 	},
 	"devDependencies": {
-		"@types/mocha": "^10.0.1",
+		"@types/expect": "^1.20.4",
+		"@types/mocha": "^10.0.10",
 		"@types/node": "^20.6.3",
-		"@types/vscode": "^1.44.0",
+		"@types/vscode": "^1.64.0",
 		"@typescript-eslint/eslint-plugin": "^6.7.2",
 		"@typescript-eslint/parser": "^6.7.2",
-		"@vscode/test-electron": "^2.3.4",
+		"@vscode/debugadapter-testsupport": "^1.51.0",
+		"@vscode/test-cli": "^0.0.12",
+		"@vscode/test-electron": "^2.5.2",
 		"eslint": "^8.50.0",
 		"eslint_d": "^12.2.1",
-		"mocha": "^10.2.0",
-		"typescript": "^5.2.2",
-		"@vscode/debugadapter-testsupport": "^1.51.0"
+		"mocha": "^10.8.2",
+		"ts-mocha": "^11.1.0",
+		"ts-node": "^10.9.2",
+		"tsconfig-paths": "^4.2.0",
+		"typescript": "^5.2.2"
 	},
 	"dependencies": {
-		"n-readlines": "^1.0.1",
-		"package_name": "^1.0.0",
+		"@vscode/debugadapter": "^1.51.0",
 		"@vscode/debugprotocol": "^1.51.0",
-		"@vscode/debugadapter": "^1.51.0"
+		"n-readlines": "^1.0.1"
 	}
 }
