@@ -21,18 +21,8 @@
 			"name": "Tests",
 			"type": "extensionHost",
 			"request": "launch",
-			"runtimeExecutable": "${execPath}",
-			"args": [
-				"--disable-extensions",
-				"--extensionDevelopmentPath=${workspaceFolder}",
-				"--extensionTestsPath=${workspaceFolder}/out/test/suite/index"
-			],
-			"sourceMaps": true,
-			"outFiles": [
-				"${workspaceFolder}/out/test/**/*.js"
-			],
-			"preLaunchTask": "npm",
-			"internalConsoleOptions": "openOnSessionStart"
+			"testConfiguration": "${workspaceFolder}/.vscode-test.js",
+			"preLaunchTask": "npm"
 		}
 	]
 }
