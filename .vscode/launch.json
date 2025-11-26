@@ -7,15 +7,21 @@
 			"request": "launch",
 			"runtimeExecutable": "${execPath}",
 			"args": [
+				"--profile-temp",
+				"--new-window",
+				"--transient",
+				// "--extensions-dir=${workspaceFolder}/.vscode-test/extensions",
+				// "--user-data-dir=${workspaceFolder}/.vscode-test/user-data",
 				"--extensionDevelopmentPath=${workspaceFolder}",
-				"--trace-deprecation"
+				"--trace-deprecation",
+				"${workspaceFolder}/.vscode-test-workspace",
 			],
+			"autoAttachChildProcesses": true,
 			"sourceMaps": true,
 			"outFiles": [
-				"${workspaceFolder}/out/test/**/*.js"
+				"${workspaceFolder}/out/**/*.js"
 			],
-			"preLaunchTask": "npm",
-			"internalConsoleOptions": "openOnSessionStart"
+			"preLaunchTask": "npm"
 		},
 		{
 			"name": "Tests",
