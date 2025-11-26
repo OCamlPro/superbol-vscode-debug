@@ -24,7 +24,7 @@
 	"license": "GPL-3.0",
 	"icon": "icon.png",
 	"engines": {
-		"vscode": "^1.44.0",
+		"vscode": "^1.66.0",
 		"node": ">=20"
 	},
 	"main": "./out/src/extension",
@@ -261,7 +261,7 @@
 		"prepare": "tsc -p ./",
 		"compile": "tsc -p ./",
 		"watch": "tsc -w -p ./",
-		"test": "npm run compile && npm exec vscode-test",
+		"test": "npm run compile && vscode-test",
 		"lint": "eslint -c .eslintrc.js --ext .ts ./"
 	},
 	"devDependencies": {
