@@ -9,6 +9,20 @@ const MAX_COLUMN_INDEX = 300;
 /** Array of COBOL Reserved words */
 const COBOL_RESERVED_WORDS = ["perform", "move", "to", "set", "add", "subtract", "call", "inquire", "modify", "invoke", "if", "not", "end-if", "until", "varying", "evaluate", "true", "when", "false", "go", "thru", "zeros", "spaces", "zero", "space", "inspect", "tallying", "exit", "paragraph", "method", "cycle", "from", "by", "and", "or", "of", "length", "function", "program", "synchronized", "end-synchronized", "string", "end-string", "on", "reference", "value", "returning", "giving", "replacing", "goback", "all", "open", "i-o", "input", "output", "close", "compute", "unstring", "using", "delete", "start", "read", "write", "rewrite", "with", "lock", "else", "upper-case", "lower-case", "display", "accept", "at", "clear-screen", "initialize", "line", "col", "key", "is", "self", "null", "stop", "run", "upon", "environment-name", "environment-value"]
 
+const superbolConsts = {
+    taskType: "superbol",
+    taskSource: "SuperBOL",
+    debugBuildTaskName: "build (debug)",
+}
+const defaultDebugBuildTask = `${superbolConsts.taskSource}: ${superbolConsts.debugBuildTaskName}`;
+
+async function checkForSuperBOLBuildTask () {
+    return vscode.tasks.fetchTasks({ type: superbolConsts.taskType }).then((tasks) =>
+        tasks.find(task => task.source == superbolConsts.taskSource &&
+                           task.name == superbolConsts.debugBuildTaskName) != undefined
+    );
+}
+
 export function activate(context: vscode.ExtensionContext) {
     const provider = new GdbConfigurationProvider();
     const factory = new GdbAdapterDescriptorFactory(new CoverageStatus(), new GDBDebugSession());
@@ -30,90 +44,92 @@ class GdbConfigurationProvider implements vscode.DebugConfigurationProvider {
     public resolveDebugConfiguration(workspaceFolder: vscode.WorkspaceFolder | undefined, config: vscode.DebugConfiguration, _token?: vscode.CancellationToken): vscode.ProviderResult<vscode.DebugConfiguration> {
         config.gdbargs = ["-q", "--interpreter=mi2"];
         const settings = new DebuggerSettings();
-        if (config.name === undefined) {
-            config.name = "SuperBOL: default debug";
-        }
-        if (config.type === undefined) {
-            config.type = "superbol-gdb";
-        }
-        if (config.request === undefined) {
-            config.request = "launch";
-        }
-        if (workspaceFolder != undefined &&
-            config.request != "attach" &&
-            config.preLaunchTask === undefined) {
-            config.preLaunchTask = "SuperBOL: build (debug)";
-        } else if (config.preLaunchTask === "none" ||
-                   config.preLaunchTask === "") {
-            delete config.preLaunchTask;
-        }
-        if (config.target === undefined) {
-            config.target = "${file}";
-        }
-        if (config.arguments === undefined) {
-            config.arguments = "";
-        }
-        if (config.group === undefined) {
-            config.group = [];
-        }
-        if (config.gdbpath === undefined) {
-            config.gdbpath = settings.gdbpath;
-        }
-        if (config.libcobpath === undefined) {
-            config.libcobpath = settings.libcobpath;
-        }
-        if (config.cobcrunPath === undefined) {
-            config.cobcrunPath = settings.cobcrunPath;
-        }
-        if (config.env === undefined) {
-            config.env = { ["LD_LIBRARY_PATH"] : config.libcobpath };
-        } else {
-            config.env.LD_LIBRARY_PATH = config.libcobpath + ";" + config.env.LD_LIBRARY_PATH;
-        }
-        if (config.coverage === undefined) {
-            config.coverage = false;
-        }
-        if (config.gdbtty === undefined) {
-            config.gdbtty = false;
-        }
-        config.sourceDirs = config.sourceDirs ?? [];
-        return config;
+        return checkForSuperBOLBuildTask().then(haveSuperBOLBuildTask => {
+            if (config.name === undefined && haveSuperBOLBuildTask) {
+                config.name = "SuperBOL: default debug";
+            }
+            if (config.type === undefined) {
+                config.type = "superbol-gdb";
+            }
+            if (config.request === undefined) {
+                config.request = "launch";
+            }
+            if (haveSuperBOLBuildTask &&
+                workspaceFolder != undefined &&
+                config.request != "attach" &&
+                config.preLaunchTask === undefined) {
+                config.preLaunchTask = defaultDebugBuildTask;
+            } else if (config.preLaunchTask === "") {
+                delete config.preLaunchTask;
+            }
+            if (config.target === undefined) {
+                config.target = "${file}";
+            }
+            if (config.arguments === undefined) {
+                config.arguments = "";
+            }
+            if (config.group === undefined) {
+                config.group = [];
+            }
+            if (config.gdbpath === undefined) {
+                config.gdbpath = settings.gdbpath;
+            }
+            if (config.libcobpath === undefined) {
+                config.libcobpath = settings.libcobpath;
+            }
+            if (config.cobcrunPath === undefined) {
+                config.cobcrunPath = settings.cobcrunPath;
+            }
+            if (config.env === undefined) {
+                config.env = { ["LD_LIBRARY_PATH"]: config.libcobpath };
+            } else {
+                config.env.LD_LIBRARY_PATH = config.libcobpath + ";" + config.env.LD_LIBRARY_PATH;
+            }
+            if (config.coverage === undefined) {
+                config.coverage = false;
+            }
+            if (config.gdbtty === undefined) {
+                config.gdbtty = false;
+            }
+            config.sourceDirs = config.sourceDirs ?? [];
+            return config;
+        });
     }
 
-    public provideDebugConfigurations(
-      _folder: vscode.WorkspaceFolder,
-      _token?: vscode.CancellationToken):
-        vscode.ProviderResult<vscode.DebugConfiguration[]> {
-        const launchConfigDefault: vscode.DebugConfiguration = {
-          name: "SuperBOL: debug (launch)",
-          type: "superbol-gdb",
-          request: "launch",
-          preLaunchTask: "SuperBOL: build (debug)",
-          target: "${file}",
-          arguments: ""
-        };
+    public provideDebugConfigurations(_folder: vscode.WorkspaceFolder, _token?: vscode.CancellationToken)
+        : vscode.ProviderResult<vscode.DebugConfiguration[]> {
+        return checkForSuperBOLBuildTask().then(haveSuperBOLBuildTask => {
+            const launchConfigDefault: vscode.DebugConfiguration = {
+                name: "SuperBOL: debug (launch)",
+                type: "superbol-gdb",
+                request: "launch",
+                preLaunchTask: haveSuperBOLBuildTask ? defaultDebugBuildTask : undefined,
+                target: "${file}",
+                arguments: ""
+            };
 
-        const attachLocalConfiguration: vscode.DebugConfiguration = {
-          name: "SuperBOL: debug (attach local)",
-          type: "superbol-gdb",
-          request: "attach",
-          pid: "${input:pid}",
-          target: "${file}"
-        };
+            const attachLocalConfiguration: vscode.DebugConfiguration = {
+                name: "SuperBOL: debug (attach local)",
+                type: "superbol-gdb",
+                request: "attach",
+                pid: "${input:pid}",
+                target: "${file}"
+            };
 
-        const attachRemoteConfiguration: vscode.DebugConfiguration = {
-          name: "SuperBOL: debug (attach remote)",
-          type: "superbol-gdb",
-          request: "attach",
-          remoteDebugger: "${input:remoteDebugger}",
-          target: "${file}"
-        }
+            const attachRemoteConfiguration: vscode.DebugConfiguration = {
+                name: "SuperBOL: debug (attach remote)",
+                type: "superbol-gdb",
+                request: "attach",
+                remoteDebugger: "${input:remoteDebugger}",
+                target: "${file}"
+            }
 
-        return [
-          launchConfigDefault,
-          attachLocalConfiguration,
-          attachRemoteConfiguration
-        ];
+            return [
+                launchConfigDefault,
+                attachLocalConfiguration,
+                attachRemoteConfiguration
+            ];
+        });
     }
 }
 
