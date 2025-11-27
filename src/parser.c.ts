@@ -2,6 +2,7 @@ import readline from "n-readlines";
 import * as path from "path";
 import * as fs from "fs";
 import {DebuggerVariable, Attribute, VariableType} from "./debugger";
+import * as log from './log';
 
 function normalizeExistingFileName(f: string): string {
     if (f != undefined && process.platform === "win32") {
@@ -71,13 +72,13 @@ export class SourceMap {
     private performLine: number = -1; // 002 - stepOver in routines with "perform"
     private isVersion2_2_or_3_1_1: boolean = false;
 
-    constructor(cwd: string, filesCobol: string[], sourceDirs: string[] = [], private log: Function = (_ => {})) {
+    constructor(cwd: string, filesCobol: string[], sourceDirs: string[] = []) {
         this.cwd = fs.realpathSync(path.resolve(cwd));
-        this.log(`Source dirs: ${sourceDirs}`);
+        log.debug(`Source dirs: ${sourceDirs}`);
         for (const cSourceDir of sourceDirs) {
-            this.log(`Trying to resolve ${cSourceDir}`);
+            log.debug(`Trying to resolve ${cSourceDir}`);
             let resolved_path = path.resolve(this.cwd, cSourceDir);
-            this.log(`Checking for ${resolved_path}`);
+            log.debug(`Checking for ${resolved_path}`);
             if (fs.existsSync(resolved_path)) {
                 this.sourceDirs.push(normalizeExistingFileName(fs.realpathSync(resolved_path)));
             }
@@ -92,7 +93,7 @@ export class SourceMap {
             }
         });
 
-        this.log(`Resolved source dirs: ${this.sourceDirs}`);
+        log.info(`Resolved source dirs: ${this.sourceDirs}`);
     }
 
     private lookupSourceFile (file: string) : string | undefined {
@@ -110,7 +111,7 @@ export class SourceMap {
             return false;
         }
         this.loadedLibs.add (libFile);
-        // this.log(`Loading ${libFile}`);
+        log.info(`Loading ${libFile}`);
         const c = this.lookupSourceFile (cFile (libFile));
         if (c) {
             this.register (c);
@@ -124,7 +125,7 @@ export class SourceMap {
             return false;
         }
         this.loadedLibs.delete (libFile);
-        // this.log(`Unloading ${libFile}`);
+        log.info(`Unloading ${libFile}`);
         // Note: assumes there was no FS changes in the meantime.
         // Cleaner way would be to record a mapping between libs and source files.
         const c = this.lookupSourceFile (cFile (libFile));
@@ -159,7 +160,6 @@ export class SourceMap {
     }
 
     private register (givenFileC: string) : void {
-        // this.log(`Parsing ${givenFileC}`);
         void this.parse (givenFileC); // just parse the file.
     }
 
@@ -167,6 +167,7 @@ export class SourceMap {
                      prevLine: string | undefined = undefined,
                     rootFileC: string | undefined = undefined,
                  functionName: string | undefined = undefined) : string {
+        log.debug(`Parsing ${givenFileC}`);
 
         const [fileC, cleanedFile] = this.ensureAbsolute (givenFileC);
         rootFileC = rootFileC ?? fileC;

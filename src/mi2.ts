@@ -7,6 +7,7 @@ import * as fs from "fs";
 import { SourceMap } from "./parser.c";
 import { parseExpression, cleanRawValue } from "./functions";
 import * as vscode from 'vscode';
+import * as log from './log';
 
 const nonOutput = /(^(?:\d*|undefined)[*+\-=~@&^])([^*+\-=~@&]{1,})/;
 const gdbRegex = /(?:\d*|undefined)\(gdb\)/;
@@ -42,7 +43,7 @@ export class MI2 extends EventEmitter implements IDebugger {
     private hasCobGetFieldStringFunction = true;
     private hasCobPutFieldStringFunction = true;
 
-    constructor(public gdbpath: string, public gdbArgs: string[], procEnv: NodeJS.ProcessEnv, public verbose: boolean, public noDebug: boolean, public gdbtty: boolean, public cobcrunPath: string, public useCobcrun: boolean, public sourceDirs: string[]) {
+    constructor(public gdbpath: string, public gdbArgs: string[], procEnv: NodeJS.ProcessEnv, public noDebug: boolean, public gdbtty: boolean, public cobcrunPath: string, public useCobcrun: boolean, public sourceDirs: string[]) {
         super();
         if (procEnv) {
             const env = {};
@@ -76,12 +77,12 @@ export class MI2 extends EventEmitter implements IDebugger {
                 let target_no_ext = target.split('.').slice(0, -1).join('.');
                 this.gcovFiles.add(target_no_ext);
                 try {
-                    this.map = new SourceMap(cwd, [target].concat(group), this.sourceDirs, ((l: any) => this.debug (l)));
+                    this.map = new SourceMap(cwd, [target].concat(group), this.sourceDirs);
                 } catch (e) {
-                    this.log('stderr', (<Error>e).toString());
+                    log.error((<Error>e).toString());
                 }
 
-                this.debug(() => this.map.toString("created"));
+                log.debug(() => this.map.toString("created"));
 
                 if (!this.useCobcrun) {
                     target = path.resolve(cwd, path.basename(target));
@@ -102,7 +103,7 @@ export class MI2 extends EventEmitter implements IDebugger {
 
                 this.process = ChildProcess.spawn(this.gdbpath, this.gdbArgs, { cwd: cwd, env: this.procEnv });
                 this.process.stdout.on("data", (data: string) => this.stdout(data));
-                this.process.stderr.on("data", (data: string) => { this.log("stderr", data); });
+                this.process.stderr.on("data", (data: string) => this.stderr(data));
                 this.process.on("exit", (() => { this.emit("quit"); }));
                 this.process.on("error", (err) => { this.emit("launcherror", err); });
                 const promises = this.initCommands(target, targetargs, cwd, this.useCobcrun);
@@ -130,14 +131,12 @@ export class MI2 extends EventEmitter implements IDebugger {
             }
 
                 try {
-                    this.map = new SourceMap(cwd, [target].concat(group), this.sourceDirs, ((l: any) => this.debug (l)));
+                    this.map = new SourceMap(cwd, [target].concat(group), this.sourceDirs);
                 } catch (e) {
-                    this.log('stderr', (<Error>e).toString());
+                    log.error((<Error>e).toString());
                 }
 
-                if (this.verbose) {
-                    this.log("stderr", this.map.toString("created"));
-                }
+                log.debug(() => this.map.toString("created"));
 
                 target = path.resolve(cwd, path.basename(target));
                 target = target.split('.').slice(0, -1).join('.');
@@ -148,7 +147,7 @@ export class MI2 extends EventEmitter implements IDebugger {
 
                 this.process = ChildProcess.spawn(this.gdbpath, this.gdbArgs, { cwd: cwd, env: this.procEnv });
                 this.process.stdout.on("data", (data: string) => this.stdout(data));
-                this.process.stderr.on("data", (data: string) => { this.log("stderr", data); });
+                this.process.stderr.on("data", (data: string) => this.stderr(data));
                 this.process.on("exit", () => { this.emit("quit"); });
                 this.process.on("error", (err) => { this.emit("launcherror", err); });
                 const promises = this.initCommands(target, targetargs, cwd, false);
@@ -189,9 +188,7 @@ export class MI2 extends EventEmitter implements IDebugger {
     }
 
     stdout(data: string) {
-        if (this.verbose) {
-            this.log("stderr", "stdout: " + data);
-        }
+        log.debug("stdout: " + data);
         this.buffer += data;
         const end = this.buffer.lastIndexOf('\n');
         if (end != -1) {
@@ -206,9 +203,7 @@ export class MI2 extends EventEmitter implements IDebugger {
     }
 
     stderr(data: string) {
-        if (this.verbose) {
-            this.log("stderr", "stderr: " + data);
-        }
+        log.debug("stderr: " + data);
         this.errbuf += data;
         const end = this.errbuf.lastIndexOf('\n');
         if (end != -1) {
@@ -223,9 +218,7 @@ export class MI2 extends EventEmitter implements IDebugger {
 
     stdin(data: string, cb?: (_err: Error) => void) {
         if (this.isReady()) {
-            if (this.verbose) {
-                this.log("stderr", "stdin: " + data);
-            }
+            log.debug("stdin: " + data);
             this.process.stdin.write(data + "\n", cb);
         }
     }
@@ -254,9 +247,9 @@ export class MI2 extends EventEmitter implements IDebugger {
                 }
             } else {
                 const parsed = parseMI(line);
-                if (this.verbose) {
-                    this.log("stderr", "GDB -> App: " + JSON.stringify(parsed));
-                }
+                // if (this.verbose) {
+                    // this.log("stderr", "GDB -> App: " + JSON.stringify(parsed));
+                // }
                 let handled = false;
                 if (parsed.token !== undefined) {
                     if (this.handlers[parsed.token]) {
@@ -282,9 +275,7 @@ export class MI2 extends EventEmitter implements IDebugger {
                                     this.emit("running", parsed);
                                 } else if (record.asyncClass == "stopped") {
                                     const reason = <string>parsed.record("reason");
-                                    if (this.verbose) {
-                                        this.log("stderr", "stop: " + reason);
-                                    }
+                                    log.debug("stop:", reason);
                                     if (reason == "breakpoint-hit") {
                                         if (!this.map.hasLineCobol(parsed.record('frame.fullname'), parseInt(parsed.record('frame.line')))) {
                                             if(this.lastStepCommand==this.continue && parsed.record("disp")=="del")
@@ -317,9 +308,7 @@ export class MI2 extends EventEmitter implements IDebugger {
                                     } else if (reason == "exited-normally") {
                                         this.emit("exited-normally", parsed);
                                     } else if (reason == "exited") { // exit with error code != 0
-                                        if (this.verbose) {
-                                            this.log("stderr", "Program exited with code " + <string>parsed.record("exit-code"));
-                                        }
+                                        log.info("Program exited with code " + <string>parsed.record("exit-code"));
                                         this.emit("quit", parsed);
                                     } else if (reason == "solib-event") {
                                         this.onSolibEvent (parsed);
@@ -328,14 +317,12 @@ export class MI2 extends EventEmitter implements IDebugger {
                                         if (!this.map.hasLineCobol(<string>parsed.record('frame.fullname'), parseInt(<string>parsed.record('frame.line')))) {
                                             void this.continue();
                                         } else {
-                                            if (this.verbose) {
-                                                this.log("stderr", "Not implemented stop reason (assuming exception): " + reason);
-                                            }
+                                            log.error("Not implemented stop reason (assuming exception):", reason);
                                             this.emit("stopped", parsed);
                                         }
                                     }
                                 } else {
-                                    this.debug (() => JSON.stringify(parsed));
+                                    log.debug (() => JSON.stringify(parsed));
                                 }
                             } else if (record.type == "notify") {
                                 if (record.asyncClass == "thread-created") {
@@ -346,19 +333,19 @@ export class MI2 extends EventEmitter implements IDebugger {
                                     // Possibly unreachable if `stop-on-solib-events` is on; still handle in case.
                                     let libname = record.output.find((e) => e[0] == "target-name")?.[1];
                                     if (this.map.addLib (libname)) {
-                                        this.debug(() => `Added library to map: ${libname}`);
-                                        this.debug (() => this.map.toString ("updated"));
+                                        log.debug (() => `Added library to map: ${libname}`);
+                                        log.debug (() => this.map.toString ("updated"));
                                         this.reloadBreakPoints ();
                                     }
                                 } else if (record.asyncClass == "library-unloaded") {
                                     // Ditto: possibly unreachable if `stop-on-solib-events` is on; still handle in case.
                                     let libname = record.output.find((e) => e[0] == "target-name")?.[1];
                                     if (this.map.remLib (libname)) {
-                                        this.debug (() => this.map.toString ("updated"));
+                                        log.debug (() => this.map.toString ("updated"));
                                         this.reloadBreakPoints ();
                                     }
                                 } else {
-                                    this.debug (() => JSON.stringify(parsed));
+                                    log.debug (() => JSON.stringify(parsed));
                                 }
                             }
                         }
@@ -369,9 +356,7 @@ export class MI2 extends EventEmitter implements IDebugger {
                     handled = true;
                 }
                 if (!handled) {
-                    if (this.verbose) {
-                        this.log("stderr", "Unhandled: " + JSON.stringify(parsed));
-                    }
+                    log.error("Unhandled: " + JSON.stringify(parsed));
                 }
             }
         });
@@ -383,15 +368,15 @@ export class MI2 extends EventEmitter implements IDebugger {
         const isLib = (lib: [string, any]) => lib[0] == "library";
         let libsChanged = false;
         libsChanged = added.filter(isLib).reduce((libsChanged, lib) => {
-            this.debug("loaded library:", lib[1]);
+            log.debug("loaded library:", lib[1]);
             return this.map.addLib(lib[1]) || libsChanged;
         }, libsChanged);
         libsChanged = removed.filter(isLib).reduce((libsChanged, lib) => {
-            this.debug("unloaded library:", lib[1]);
+            log.debug("unloaded library:", lib[1]);
             return this.map.remLib(lib[1]) || libsChanged;
         }, libsChanged);
         if (libsChanged) {
-            this.debug (() => this.map.toString ("updated"));
+            log.debug (() => this.map.toString ("updated"));
             this.reloadBreakPoints ();
         }
     }
@@ -459,9 +444,7 @@ export class MI2 extends EventEmitter implements IDebugger {
     }
 
     interrupt(): Thenable<boolean> {
-        if (this.verbose) {
-            this.log("stderr", "interrupt");
-        }
+        log.debug("interrupt");
         return new Promise((resolve, reject) => {
             this.sendCommand("exec-interrupt").then((info) => {
                 resolve(info.resultRecords.resultClass == "done");
@@ -471,9 +454,7 @@ export class MI2 extends EventEmitter implements IDebugger {
 
     continue(): Thenable<boolean> {
         this.lastStepCommand = () => this.continue();
-        if (this.verbose) {
-            this.log("stderr", "continue");
-        }
+        log.debug("continue");
         return new Promise((resolve, reject) => {
             this.sendCommand("exec-continue").then((info) => {
                 resolve(info.resultRecords.resultClass == "running");
@@ -497,9 +478,7 @@ export class MI2 extends EventEmitter implements IDebugger {
     // 002 - stepOver in routines with "perform"
     stepOver(): Thenable<boolean> {
         this.lastStepCommand = () => this.stepOver();
-        if (this.verbose) {
-            this.log("stderr", "stepOver");
-        }
+        log.debug("stepOver");
         if (subroutine >= 0) {
             return new Promise((resolve, reject) => {
                 this.sendCommand("exec-until " + subroutine).then((info) => {
@@ -522,9 +501,7 @@ export class MI2 extends EventEmitter implements IDebugger {
      */
     stepInto(): Thenable<boolean> {
         this.lastStepCommand = () => this.stepInto() ;
-        if (this.verbose) {
-            this.log("stderr", "stepInto");
-        }
+        log.debug("stepInto");
         // 002 - stepInto/setpOut in routines with "perform"
         if (subroutine >= 0) {
             return new Promise((resolve, reject) => {
@@ -549,9 +526,7 @@ export class MI2 extends EventEmitter implements IDebugger {
      */
     stepOut(): Thenable<boolean> {
         this.lastStepCommand = () => this.stepOut() ;
-        if (this.verbose) {
-            this.log("stderr", "stepOut");
-        }
+        log.debug("stepOut");
         return new Promise((resolve, reject) => {
             this.sendCommand("exec-finish").then((info) => {
                 resolve(info.resultRecords.resultClass == "running");
@@ -560,9 +535,7 @@ export class MI2 extends EventEmitter implements IDebugger {
     }
 
     goto(filename: string, line: number): Thenable<boolean> {
-        if (this.verbose) {
-            this.log("stderr", "goto");
-        }
+        log.debug("goto");
         return new Promise((resolve, reject) => {
             const target: string = '"' + (filename ? escape(filename) + ":" : "") + line.toString() + '"';
             this.sendCommand("break-insert -t " + target).then(() => {
@@ -574,7 +547,7 @@ export class MI2 extends EventEmitter implements IDebugger {
     }
 
     async changeVariable(name: string, rawValue: string): Promise<void> {
-        this.debug("changeVariable");
+        log.debug("changeVariable");
 
         const functionName = await this.getCurrentFunctionName();
 
@@ -607,7 +580,7 @@ export class MI2 extends EventEmitter implements IDebugger {
     }
 
     loadBreakPoints(breakpoints: Breakpoint[]): Thenable<[boolean, Breakpoint][]> {
-        this.debug("loadBreakPoints");
+        log.debug("loadBreakPoints");
         const promisses = [];
         breakpoints.forEach(breakpoint => {
             promisses.push(this.addBreakPoint(breakpoint));
@@ -625,12 +598,12 @@ export class MI2 extends EventEmitter implements IDebugger {
     }
 
     setBreakPointCondition(bkptNum: number, condition: string): Thenable<any> {
-        this.debug("setBreakPointCondition");
+        log.debug("setBreakPointCondition");
         return this.sendCommand("break-condition " + bkptNum.toString() + " " + condition);
     }
 
     addBreakPoint(breakpoint: Breakpoint): Thenable<[boolean, Breakpoint]> {
-        this.debug("addBreakPoint");
+        log.debug("addBreakPoint");
 
         return new Promise((resolve, reject) => {
             if (this.breakpoints.has(breakpoint)) {
@@ -653,7 +626,7 @@ export class MI2 extends EventEmitter implements IDebugger {
 
             const map = this.map.getLineC(breakpoint.file, breakpoint.line);
             if (map.fileC === '' && map.lineC === 0) {
-                this.debug (() => [
+                log.debug (() => [
                     "addBreakPoint: ignoring breakpoint for unknown source file:",
                     JSON.stringify(breakpoint)
                 ]);
@@ -698,7 +671,7 @@ export class MI2 extends EventEmitter implements IDebugger {
     }
 
     removeBreakPoint(breakpoint: Breakpoint): Thenable<boolean> {
-        this.debug("removeBreakPoint");
+        log.debug("removeBreakPoint");
         return new Promise((resolve, _reject) => {
             if (!this.breakpoints.has(breakpoint)) {
                 if (this.ignoredBreakpoints.has(breakpoint)) {
@@ -718,7 +691,7 @@ export class MI2 extends EventEmitter implements IDebugger {
     }
 
     clearBreakPoints(): Thenable<unknown> {
-        this.debug("clearBreakPoints");
+        log.debug("clearBreakPoints");
         return new Promise((resolve, _reject) => {
             this.sendCommand("break-delete").then((result) => {
                 if (result.resultRecords.resultClass == "done") {
@@ -735,7 +708,7 @@ export class MI2 extends EventEmitter implements IDebugger {
     }
 
     async getThreads(): Promise<Thread[]> {
-        this.debug("getThreads");
+        log.debug("getThreads");
         return new Promise((resolve, reject) => {
             if (!!this.noDebug) {
                 return;
@@ -757,7 +730,7 @@ export class MI2 extends EventEmitter implements IDebugger {
     }
 
     async getStack(maxLevels: number, thread: number): Promise<Stack[]> {
-        this.debug("getStack");
+        log.debug("getStack");
         let command = "stack-list-frames";
         if (thread != 0) {
             command += ` --thread ${thread}`;
@@ -799,7 +772,7 @@ export class MI2 extends EventEmitter implements IDebugger {
     }
 
     async getCurrentFunctionName(): Promise<string> {
-        this.debug("getCurrentFunctionName");
+        log.debug("getCurrentFunctionName");
         const response = await this.sendCommand("stack-info-frame", failure_handling.Silence);
         if (response === undefined)
             return;
@@ -807,7 +780,7 @@ export class MI2 extends EventEmitter implements IDebugger {
     }
 
     async getStackVariables(thread: number, frame: number): Promise<DebuggerVariable[]> {
-        this.debug("getStackVariables");
+        log.debug("getStackVariables");
 
         const functionName = await this.getCurrentFunctionName();
         if (functionName === undefined)
@@ -845,9 +818,7 @@ export class MI2 extends EventEmitter implements IDebugger {
     }
 
     examineMemory(from: number, length: number): Thenable<any> {
-        if (this.verbose) {
-            this.log("stderr", "examineMemory");
-        }
+        log.debug("examineMemory");
         return new Promise((resolve, reject) => {
             this.sendCommand("data-read-memory-bytes 0x" + from.toString(16) + " " + length).then((result) => {
                 resolve(result.result("memory[0].contents"));
@@ -856,7 +827,7 @@ export class MI2 extends EventEmitter implements IDebugger {
     }
 
     async evalExpression(expression: string, thread: number, frame: number): Promise<string> {
-        this.debug("evalExpression", expression);
+        log.debug("evalExpression", expression);
 
         const functionName = await this.getCurrentFunctionName();
         if (functionName === undefined)
@@ -878,13 +849,13 @@ export class MI2 extends EventEmitter implements IDebugger {
             const result = Function(`"use strict"; ${finalExpression}`)();
             return JSON.stringify(result); // deals with escapes.
         } catch (e) {
-            this.debug(e.message);
+            log.debug(e.message);
             return `Failed to evaluate ${expression}`;
         }
     }
 
     async evalCobField(name: string, thread: number, frame: number): Promise<DebuggerVariable> {
-        this.debug("evalCobField", name);
+        log.debug("evalCobField", name);
 
         const functionName = await this.getCurrentFunctionName();
         if (functionName === undefined)
@@ -901,7 +872,7 @@ export class MI2 extends EventEmitter implements IDebugger {
     }
 
     private async evalVariable(variable: DebuggerVariable, thread: number, frame: number): Promise<DebuggerVariable> {
-        this.debug("evalVariable", variable.cName);
+        log.debug("evalVariable", variable.cName);
 
         let command = "data-evaluate-expression ";
         if (thread != 0) {
@@ -949,30 +920,6 @@ export class MI2 extends EventEmitter implements IDebugger {
 
     private log(type: string, msg: string): void {
         this.emit("msg", type, msg[msg.length - 1] == '\n' ? msg : (msg + "\n"));
-    }
-
-    private debug(...msg: (string | (() => (string | string[])))[]) {
-        if (this.verbose) {
-            this.log("stderr", msg.flatMap(f => {
-                if (typeof (f) == "string") {
-                    return [f];
-                } else {
-                    const r = f();
-                    return (typeof (r) == "string") ? [r] : r;
-                }
-            }).join(' '));
-        }
-    }
-
-    private info(...msg: (string | (() => (string | string[])))[]) {
-        this.log("stdout", msg.flatMap(f => {
-            if (typeof (f) == "string") {
-                return [f];
-            } else {
-                const r = f();
-                return (typeof (r) == "string") ? [r] : r;
-            }
-        }).join(' '));
     }
 
     sendUserInput(command: string, threadId: number = 0, frameLevel: number = 0): Thenable<any> {
