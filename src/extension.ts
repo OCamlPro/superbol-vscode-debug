@@ -43,7 +43,6 @@ export function deactivate() {
 class GdbConfigurationProvider implements vscode.DebugConfigurationProvider {
     public resolveDebugConfiguration(workspaceFolder: vscode.WorkspaceFolder | undefined, config: vscode.DebugConfiguration, _token?: vscode.CancellationToken): vscode.ProviderResult<vscode.DebugConfiguration> {
         config.gdbargs = ["-q", "--interpreter=mi2"];
-        const settings = new DebuggerSettings();
         return checkForSuperBOLBuildTask().then(haveSuperBOLBuildTask => {
             if (config.name === undefined && haveSuperBOLBuildTask) {
                 config.name = "SuperBOL: default debug";
@@ -70,15 +69,6 @@ class GdbConfigurationProvider implements vscode.DebugConfigurationProvider {
             }
             if (config.group === undefined) {
                 config.group = [];
-            }
-            if (config.gdbpath === undefined) {
-                config.gdbpath = settings.gdbpath;
-            }
-            if (config.libcobpath === undefined) {
-                config.libcobpath = settings.libcobpath;
-            }
-            if (config.cobcrunPath === undefined) {
-                config.cobcrunPath = settings.cobcrunPath;
             }
             if (config.env === undefined) {
                 config.env = { ["LD_LIBRARY_PATH"]: config.libcobpath };
