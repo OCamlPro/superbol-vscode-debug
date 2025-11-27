@@ -7,12 +7,13 @@ suite("C code parse", () => {
 	test("Minimal", () => {
 		const c = nativePath.resolve(cwd, 'hello.c');
 		const cobol = nativePath.resolve(cwd, 'hello.cbl');
-		const parsed = new SourceMap(cwd, [c], [cwd]);
+		const parsed = new SourceMap(cwd, [cobol]);
 
 		assert.equal(3, parsed.getLinesCount());
 		assert.equal(3, parsed.getVariablesCount());
 		assert.equal('b_6', parsed.getVariableByCobol('hello_.MYVAR').cName);
 		assert.equal('f_6', parsed.getVariableByCobol('hello_.MYVAR.MYVAR').cName);
+		assert.equal('hello_', parsed.getVariableByCobol('hello_.MYVAR').functionName);
 		assert.equal('MYVAR', parsed.getVariableByC('hello_.b_6').cobolName);
 		assert.equal('MYVAR', parsed.getVariableByC('hello_.f_6').cobolName);
 		assert.equal(105, parsed.getLineC(cobol, 8).lineC);
@@ -25,7 +26,7 @@ suite("C code parse", () => {
 	test("GnuCOBOL 3.1.1", () => {
 		const c = nativePath.resolve(cwd, 'hello3.c');
 		const cobol = nativePath.resolve(cwd, 'hello3.cbl');
-		const parsed = new SourceMap(cwd, [c], [cwd]);
+		const parsed = new SourceMap(cwd, [cobol]);
 
 		assert.equal(3, parsed.getLinesCount());
 		assert.equal(3, parsed.getVariablesCount());
@@ -44,10 +45,7 @@ suite("C code parse", () => {
 		assert.equal('3.1.1.0', parsed.getVersion());
 	});
 	test("Compilation Group", () => {
-		const cSample = nativePath.resolve(cwd, 'sample.c');
-		const cSubSample = nativePath.resolve(cwd, 'subsample.c');
-		const cSubSubSample = nativePath.resolve(cwd, 'subsubsample.c');
-		const parsed = new SourceMap(cwd, [cSample, cSubSample, cSubSubSample], [cwd]);
+		const parsed = new SourceMap(cwd, ['sample.cbl', 'subsample.cbl', 'subsubsample.cbl']);
 
 		assert.equal(7, parsed.getLinesCount());
 		assert.equal(14, parsed.getVariablesCount());
@@ -64,8 +62,7 @@ suite("C code parse", () => {
 		assert.equal('2.2.0', parsed.getVersion());
 	});
 	test("Variables Hierarchy", () => {
-		const c = nativePath.resolve(cwd, 'petstore.c');
-		const parsed = new SourceMap(cwd, [c], [cwd]);
+		const parsed = new SourceMap(cwd, ['petstore.cbl']);
 
 		assert.equal('b_14', parsed.getVariableByCobol('petstore_.WS-BILL').cName);
 		assert.equal('f_15', parsed.getVariableByCobol('petstore_.WS-BILL.TOTAL-QUANTITY').cName);
@@ -73,8 +70,7 @@ suite("C code parse", () => {
 		assert.equal('TOTAL-QUANTITY', parsed.getVariableByC('petstore_.f_15').cobolName);
 	});
 	test("Find variables by function and COBOL name", () => {
-		const c = nativePath.resolve(cwd, 'petstore.c');
-		const parsed = new SourceMap(cwd, [c], [cwd]);
+		const parsed = new SourceMap(cwd, ['petstore.cbl']);
 
 		assert.equal('f_15', parsed.findVariableByCobol('petstore_', 'TOTAL-QUANTITY').cName);
 		assert.equal('f_15', parsed.findVariableByCobol('petstore_', 'WS-BILL.TOTAL-QUANTITY').cName);
@@ -84,8 +80,7 @@ suite("C code parse", () => {
 		assert.equal('3.1-dev.0', parsed.getVersion());
 	});
 	test("Attributes", () => {
-		const c = nativePath.resolve(cwd, 'datatypes.c');
-		const parsed = new SourceMap(cwd, [c], [cwd]);
+		const parsed = new SourceMap(cwd, ['datatypes.cbl']);
 
 		for (let variable of parsed.getVariablesByCobol()) {
 			assert.notEqual(variable.attribute, null);
@@ -107,8 +102,7 @@ suite("C code parse", () => {
 		assert.equal('3.1-dev.0', parsed.getVersion());
 	});
 	test("Multiple Functions", () => {
-		const c = nativePath.resolve(cwd, 'func.c');
-		const parsed = new SourceMap(cwd, [c], [cwd]);
+		const parsed = new SourceMap(cwd, ['func.cbl']);
 
 		const f_6 = parsed.getVariableByC('func_.f_6');
 		assert.equal('argA', f_6.cobolName);
@@ -132,5 +126,22 @@ suite("C code parse", () => {
 		assert.equal('f_23', argAMlp.cName);
 
 		assert.equal('2.2.0', parsed.getVersion());
+	});
+	test("Split Sources", () => {
+		const srcDirs = nativePath.resolve(cwd, 'distinct-sources');
+		const cDirs = nativePath.resolve(srcDirs, 'c');
+		const cblDirs = nativePath.resolve(srcDirs, 'cbl');
+		const parsed = new SourceMap(cwd, ['subsubsample.cbl'], [cDirs, cblDirs]);
+		console.log (parsed.toString());
+
+		assert.equal(1, parsed.getLinesCount());
+		assert.equal(3, parsed.getVariablesCount());
+
+		const alnumGroup = parsed.findVariableByCobol('subsubsample_', 'WS-GROUP-ALPHANUMERIC');
+		assert.equal('WS-GROUP-ALPHANUMERIC', alnumGroup.cobolName);
+
+		const alnumGroup_ = parsed.findVariableByC('subsubsample_', alnumGroup.cName);
+		assert.equal(alnumGroup_.cobolName, alnumGroup.cobolName);
+		assert.equal(alnumGroup_.rootFileC, alnumGroup.rootFileC);
 	});
 });

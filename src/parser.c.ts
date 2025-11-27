@@ -71,7 +71,7 @@ export class SourceMap {
     private performLine: number = -1; // 002 - stepOver in routines with "perform"
     private isVersion2_2_or_3_1_1: boolean = false;
 
-    constructor(cwd: string, filesCobol: string[], sourceDirs: string[], private log: Function = (_ => {})) {
+    constructor(cwd: string, filesCobol: string[], sourceDirs: string[] = [], private log: Function = (_ => {})) {
         this.cwd = fs.realpathSync(path.resolve(cwd));
         this.log(`Source dirs: ${sourceDirs}`);
         for (const cSourceDir of sourceDirs) {
@@ -300,6 +300,15 @@ export class SourceMap {
         return this.variablesByC.size;
     }
 
+    public findVariableByC(functionName: string, cName: string): DebuggerVariable {
+        for (const key of this.variablesByC.keys()) {
+            if (key.startsWith(`${functionName}.`) && key.endsWith(`.${cName}`)) {
+                return this.variablesByC.get(key);
+            }
+        }
+        return null;
+    }
+
     public getVariableByC(varC: string): DebuggerVariable {
         if (this.variablesByC.has(varC)) {
             return this.variablesByC.get(varC);
@@ -309,7 +318,7 @@ export class SourceMap {
 
     public findVariableByCobol(functionName: string, name: string): DebuggerVariable {
         for (const key of this.variablesByCobol.keys()) {
-            if (key.startsWith(functionName) && key.endsWith(`.${name.toUpperCase()}`)) {
+            if (key.startsWith(`${functionName}.`) && key.endsWith(`.${name.toUpperCase()}`)) {
                 return this.variablesByCobol.get(key);
             }
         }
