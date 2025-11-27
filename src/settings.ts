@@ -5,23 +5,21 @@ export class DebuggerSettings {
 
     constructor() {
         this.debugSettings = vscode.workspace.getConfiguration("superbol.debugger");
-        //this.globalSettings = vscode.workspace.getConfiguration("superbol");
+        if (!this.debugSettings.has("gdbPath")) {
+            this.debugSettings = vscode.workspace.getConfiguration("superbol-vscode-debug");    
+        }
     }
 
     public get displayVariableAttributes(): boolean {
         return this.debugSettings.get<boolean>("displayVariableAttributes");
     }
 
-    public get gdbpath(): string {
+    public get gdbPath(): string {
         return this.debugSettings.get<string>("gdbPath");
     }
 
-    public get libcobpath(): string {
+    public get libcobPath(): string {
         return this.debugSettings.get<string>("libcobPath");
-    }
-
-    public get gdbtty(): string {
-        return this.debugSettings.get<string>("gdbtty");
     }
 
     public get cobcrunPath(): string {

@@ -28,6 +28,11 @@
 			"type": "extensionHost",
 			"request": "launch",
 			"testConfiguration": "${workspaceFolder}/.vscode-test.js",
+			"sourceMaps": true,
+			"outFiles": [
+				"${workspaceFolder}/**/*.(m|c|)js",
+				"!**/node_modules/**"
+			],
 			"preLaunchTask": "npm"
 		}
 	]

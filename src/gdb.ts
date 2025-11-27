@@ -32,14 +32,12 @@ export interface LaunchRequestArguments extends DebugProtocol.LaunchRequestArgum
     cwd: string | null;
     target: string;
     arguments: string;
-    gdbpath: string;
     gdbargs: string[];
     env: NodeJS.ProcessEnv;
     group: string[];
     verbose: boolean;
     coverage: boolean;
     gdbtty: boolean;
-    cobcrunPath: string;
     useCobcrun: boolean;
     sourceDirs: string[];
 }
@@ -48,7 +46,6 @@ export interface AttachRequestArguments extends DebugProtocol.LaunchRequestArgum
     cwd: string | null;
     target: string;
     arguments: string;
-    gdbpath: string;
     gdbargs: string[];
     env: NodeJS.ProcessEnv;
     group: string[];
@@ -57,6 +54,8 @@ export interface AttachRequestArguments extends DebugProtocol.LaunchRequestArgum
     remoteDebugger: string;
     sourceDirs: string[];
 }
+
+const settings = new DebuggerSettings();
 
 export class GDBDebugSession extends DebugSession {
     protected variableHandles = new Handles<string | VariableObject | ExtendedVariable>(VAR_HANDLES_START);
@@ -71,7 +70,6 @@ export class GDBDebugSession extends DebugSession {
     protected miDebugger: MI2;
     coverageStatus: CoverageStatus;
     private showVariableDetails: boolean;
-    private settings = new DebuggerSettings();
     private showCoverage: boolean = true;
 
     protected initializeRequest(response: DebugProtocol.InitializeResponse, _args: DebugProtocol.InitializeRequestArguments): void {
@@ -84,7 +82,7 @@ export class GDBDebugSession extends DebugSession {
         this.started = false;
         this.attached = false;
 
-        this.miDebugger = new MI2(args.gdbpath, args.gdbargs, args.env, args.verbose, args.noDebug, args.gdbtty, args.cobcrunPath, args.useCobcrun, args.sourceDirs);
+        this.miDebugger = new MI2(settings.gdbPath, args.gdbargs, args.env, args.verbose, args.noDebug, args.gdbtty, settings.cobcrunPath, args.useCobcrun, args.sourceDirs);
         this.miDebugger.on("launcherror", (err: Error) => this.launchError(err));
         this.miDebugger.on("quit", () => this.quitEvent());
         this.miDebugger.on("exited-normally", () => this.quitEvent());
@@ -138,7 +136,7 @@ export class GDBDebugSession extends DebugSession {
         this.attached = true;
         this.started = false;
 
-        this.miDebugger = new MI2(args.gdbpath, args.gdbargs, args.env, args.verbose, false, false, "", false, args.sourceDirs);
+        this.miDebugger = new MI2(settings.gdbPath, args.gdbargs, args.env, args.verbose, false, false, "", false, args.sourceDirs);
         this.miDebugger.on("launcherror", (err: Error) => this.launchError(err));
         this.miDebugger.on("quit", () => this.quitEvent());
         this.miDebugger.on("exited-normally", () => this.quitEvent());
@@ -426,7 +424,7 @@ export class GDBDebugSession extends DebugSession {
     }
 
     protected async variablesRequest(response: DebugProtocol.VariablesResponse, args: DebugProtocol.VariablesArguments): Promise<void> {
-        this.showVariableDetails = this.settings.displayVariableAttributes;
+        this.showVariableDetails = settings.displayVariableAttributes;
 
         let id: number | string | VariableObject | ExtendedVariable;
         if (args.variablesReference < VAR_HANDLES_START) {

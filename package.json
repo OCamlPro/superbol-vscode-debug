@@ -66,7 +66,7 @@
 						"properties": {
 							"target": {
 								"type": "string",
-								"description": "Path to executable",
+								"description": "Path to the executable, or name of the module to launch",
 								"default": "${file}"
 							},
 							"arguments": {
@@ -77,17 +77,7 @@
 							"cwd": {
 								"type": "string",
 								"description": "Path to project",
-								"default": "${workspaceRoot}"
-							},
-							"gdbpath": {
-								"type": "string",
-								"description": "Path to gdb",
-								"default": "gdb"
-							},
-							"libcobpath": {
-								"type": "string",
-								"description": "Path to libcob",
-								"default": null
+								"default": "${workspaceFolder}"
 							},
 							"group": {
 								"type": "array",
@@ -106,7 +96,7 @@
 							},
 							"verbose": {
 								"type": "boolean",
-								"description": "Debug GDB",
+								"description": "Debug interactions with gdb",
 								"default": false
 							},
 							"gdbtty": {
@@ -126,6 +116,16 @@
 									"konsole",
 									"external"
 								]
+							},
+							"useCobcrun": {
+								"type": "boolean",
+								"markdownDescription": "Debug the target as a module of `cobcrun`",
+								"default": false
+							},
+							"sourceDirs": {
+								"type": "array",
+								"markdownDescription": "Where to find the source code, in addition to the current directory.\n\nExample: `[ \"/usr/share/cobol/sources\" ]`",
+								"default": []
 							}
 						}
 					},
@@ -139,23 +139,13 @@
 							},
 							"arguments": {
 								"type": "string",
-								"description": "Extra arguments for executable",
+								"description": "Extra arguments (only used when the program is restarted)",
 								"default": null
 							},
 							"cwd": {
 								"type": "string",
 								"description": "Path to project",
-								"default": "${workspaceRoot}"
-							},
-							"gdbpath": {
-								"type": "string",
-								"description": "Path to gdb",
-								"default": "gdb"
-							},
-							"libcobpath": {
-								"type": "string",
-								"description": "Path to libcob",
-								"default": null
+								"default": "${workspaceFolder}"
 							},
 							"group": {
 								"type": "array",
@@ -169,7 +159,7 @@
 							},
 							"verbose": {
 								"type": "boolean",
-								"description": "Debug GDB",
+								"description": "Debug interactions with gdb",
 								"default": false
 							},
 							"pid": {
@@ -181,6 +171,11 @@
 								"type": "string",
 								"description": "GDB Server host:port",
 								"default": null
+							},
+							"sourceDirs": {
+								"type": "array",
+								"markdownDescription": "Where to find the source code, in addition to the current directory.\n\nExample: `[ \"/usr/share/cobol/sources\" ]`",
+								"default": []
 							}
 						}
 					}
@@ -196,10 +191,7 @@
 							"target": "$${_:{file}}",
 							"arguments": "",
 							"cwd": "$${_:{workspaceRoot}}",
-							"group": [],
-							"coverage": false,
-							"verbose": false,
-							"gdbtty": false
+							"gdbtty": true
 						}
 					},
 					{
@@ -211,9 +203,7 @@
 							"request": "attach",
 							"pid": "${3:0}",
 							"target": "$${_:{file}}",
-							"cwd": "$${_:{workspaceRoot}}",
-							"group": [],
-							"verbose": false
+							"cwd": "$${_:{workspaceRoot}}"
 						}
 					},
 					{
@@ -225,9 +215,7 @@
 							"request": "attach",
 							"remoteDebugger": "${3:host:port}",
 							"target": "$${_:{file}}",
-							"cwd": "$${_:{workspaceRoot}}",
-							"group": [],
-							"verbose": false
+							"cwd": "$${_:{workspaceRoot}}"
 						}
 					}
 				]
@@ -242,17 +230,28 @@
 					"description": "Displaying Data Storages and Fields attributes (e.g. size of Alphanumerics or digits and scale of numerics).",
 					"scope": "resource"
 				},
-				"superbol-vscode-debug.pathToGDB": {
+				"superbol-vscode-debug.gdbPath": {  
 					"type": "string",
-					"description": "Path to the `gdb` command",
-					"default": "gdb",
-					"scope": "application"
+        				"title": "GNU Debugger Executable",
+          				"markdownDescription": "Path to the GNU debugger executable.\n<!-- COBOL -->",
+          				"default": "gdb",
+         				"scope": "machine-overridable"
+          			},
+				"superbol-vscode-debug.cobcrunPath": {
+					"title": "GnuCOBOL module loader",
+					"markdownDescription": "Path to `cobcrun`, the GnuCOBOL module loader.\n<!-- COBOL -->",
+					"type": "string",
+					"default": "cobcrun",
+					"scope": "machine-overridable"
 				},
-				"superbol-vscode-debug.pathToLibCob": {
-					"type": "string",
-					"description": "Path to the folder containing `libcob`",
-					"default": "/usr/local/gnucobol/lib",
-					"scope": "application"
+				"superbol-vscode-debug.libcobPath": {
+					"title": "GnuCOBOL Runtime Library",
+					"type": [
+						"string",
+						"null"
+					],
+					"description": "Path to the GnuCOBOL runtime library file.",
+					"scope": "machine-overridable"
 				}
 			}
 		}
