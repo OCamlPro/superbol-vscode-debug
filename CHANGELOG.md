@@ -1,5 +1,6 @@
 ## Next
 
+* Show global data items in Variables panel [PR #39](https://github.com/ocamlpro/superbol-vscode-debug/pull/39)
 * Fixed a bug that made the extension hang when debugged programs displayed signed numbers [PR #39](https://github.com/ocamlpro/superbol-vscode-debug/pull/39)
 * Show COBOL statements in entries of stackframe summary [PR #38](https://github.com/ocamlpro/superbol-vscode-debug/pull/38)
 * Remove `gdbpath` and `libcobpath` from launch configurations (these are provided in extension settings) [PR #36](https://github.com/ocamlpro/superbol-vscode-debug/pull/36)

@@ -23,6 +23,19 @@ export interface Stack {
     line: Line;
 }
 
+export interface FileSymbols {
+    filename: string;
+    fullname: string;
+    symbols: Symbol[];
+}
+
+export interface Symbol {
+    line: number;
+    name: string;
+    type: string;
+    description: string;
+}
+
 const repeatTimeRegex = /(\"\,\s|^)\'(\s|0)\'\s\<repeats\s(\d+)\stimes\>/i;
 
 export class CobolFieldDataParser {
@@ -499,13 +512,17 @@ export interface IDebugger {
 
     getStackVariables(thread: number, frame: number): Thenable<DebuggerVariable[]>;
 
-    evalExpression(name: string, thread: number, frame: number): Thenable<any>;
+    globalFileSymbols(nameFilterRegexp?: string): Thenable<FileSymbols[]>;
 
+    evalSymbol(s: Symbol): Promise<DebuggerVariable>;
+    evalExpression(name: string, thread: number, frame: number): Promise<string>;
     evalCobField(name: string, thread: number, frame: number): Promise<DebuggerVariable>;
+    evalGlobalCobField(name: string): Promise<DebuggerVariable>;
 
     isReady(): boolean;
 
-    changeVariable(name: string, rawValue: string): Promise<any>;
+    changeVariable(name: string, rawValue: string): Promise<Array<DebugProtocol.InvalidatedAreas>>;
+    changeGlobalVariable(name: string, rawValue: string): Promise<Array<DebugProtocol.InvalidatedAreas>>;
 
     examineMemory(from: number, to: number): Thenable<any>;
 

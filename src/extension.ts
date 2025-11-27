@@ -155,10 +155,11 @@ class GnuCOBOLEvalExpressionFactory implements EvaluatableExpressionProvider {
                 return undefined;            
         }
         // TODO: Do not use a global variable
-        const variableName =  globalThis.varGlobal.filter(it => it.children.toLowerCase() === txtToEval.toLowerCase());    
-        if(variableName && variableName.length>0){
-            return new EvaluatableExpression(wordRange, variableName[0].father);
-        }
+        // Disabled for now...
+        // const variableName = globalThis.varGlobal.filter(it => it.children.toLowerCase() === txtToEval.toLowerCase());
+        // if(variableName && variableName.length>0){
+        //     return new EvaluatableExpression(wordRange, variableName[0].father);
+        // }
         return wordRange ? new EvaluatableExpression(wordRange) : undefined;
 	}
 

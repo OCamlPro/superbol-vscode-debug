@@ -13,7 +13,7 @@ import {
     ThreadEvent
 } from '@vscode/debugadapter';
 import {DebugProtocol} from '@vscode/debugprotocol';
-import {Breakpoint, VariableObject} from './debugger';
+import {Breakpoint, DebuggerVariable, FileSymbols, Symbol, VariableObject} from './debugger';
 import {MINode} from './parser.mi2';
 import * as path from "path";
 import {MI2} from './mi2';
@@ -66,10 +66,10 @@ function initLogLevel(verbose: boolean) {
     }
 }
 
+enum VarCat { Local, Global };
+
 export class GDBDebugSession extends DebugSession {
-    protected variableHandles = new Handles<string | VariableObject | ExtendedVariable>(VAR_HANDLES_START);
-    protected variableHandlesReverse: { [id: string]: number } = {};
-    protected useVarObjects: boolean;
+    protected variableHandles = new Handles<[string, VarCat]>(VAR_HANDLES_START);
     protected quit: boolean;
     protected needContinue: boolean;
     protected started: boolean;
@@ -78,7 +78,6 @@ export class GDBDebugSession extends DebugSession {
     protected debugReady: boolean;
     protected miDebugger: MI2;
     coverageStatus: CoverageStatus;
-    private showVariableDetails: boolean;
     private showCoverage: boolean = true;
 
     protected initializeRequest(response: DebugProtocol.InitializeResponse, _args: DebugProtocol.InitializeRequestArguments): void {
@@ -111,8 +110,7 @@ export class GDBDebugSession extends DebugSession {
         this.needContinue = false;
         this.crashed = false;
         this.debugReady = false;
-        this.useVarObjects = false;
-        // Run in the target executables' directory, unless specificed; becomes '.' if target is a module name.
+        // Run in the target executables' directory, unless specified; becomes '.' if target is a module name.
         let cwd = args.cwd ?? path.dirname (args.target);
         this.miDebugger.load(cwd, args.target, args.arguments, args.group, args.gdbtty).then(
         /*onfulfilled:*/ () => {
@@ -167,7 +165,6 @@ export class GDBDebugSession extends DebugSession {
         this.needContinue = true;
         this.crashed = false;
         this.debugReady = false;
-        this.useVarObjects = false;
         // Run in the target executables' directory, unless specificed.
         let cwd = args.cwd ?? path.dirname (args.target);
         this.miDebugger.attach(cwd, args.target, args.arguments, args.group).then(() => {
@@ -260,26 +257,25 @@ export class GDBDebugSession extends DebugSession {
     }
 
     protected async setVariableRequest(response: DebugProtocol.SetVariableResponse, args: DebugProtocol.SetVariableArguments): Promise<void> {
+        const showDetails = settings.displayVariableAttributes;
+        const [id, cat] = this.lookupVariable(args.variablesReference);
         try {
-            let id: number | string | VariableObject | ExtendedVariable;
-            if (args.variablesReference < VAR_HANDLES_START) {
-                id = args.variablesReference - STACK_HANDLES_START;
-            } else {
-                id = this.variableHandles.get(args.variablesReference);
-            }
-
             let name = args.name;
             if (typeof id == "string") {
                 name = `${id}.${args.name}`;
-                if (this.showVariableDetails && args.name === "value") {
+                if (showDetails && args.name === "value") {
                     name = id;
                 }
             }
-            if (!this.showVariableDetails || args.name === "value") {
-                await this.miDebugger.changeVariable(name, args.value);
-                response.body = {
-                    value: args.value
-                };
+            if (!showDetails || args.name === "value") {
+                const invalidatedAreas = (cat == VarCat.Global) ?
+                    await this.miDebugger.changeGlobalVariable(name, args.value) :
+                    await this.miDebugger.changeVariable(name, args.value);
+                response.body = { value: args.value };
+                if (invalidatedAreas.length > 0) {
+                    // Trigger an update of invalidated areas.
+                    this.sendEvent(new DebugAdapter.InvalidatedEvent(invalidatedAreas));
+                }
             }
             this.sendResponse(response);
         } catch (err) {
@@ -424,96 +420,118 @@ export class GDBDebugSession extends DebugSession {
             this.sendResponse(response);
     }
 
-    protected scopesRequest(response: DebugProtocol.ScopesResponse, args: DebugProtocol.ScopesArguments): void {
-        const scopes = new Array<Scope>();
-        scopes.push(new Scope("Local", STACK_HANDLES_START + (args.frameId || 0), false));
+    // TODO: invalidate on some operations?
+    private globalSymbols: Symbol[] = [];
 
+    protected scopesRequest(response: DebugProtocol.ScopesResponse, args: DebugProtocol.ScopesArguments): void {
+        const scopes = [
+            new Scope("Local", STACK_HANDLES_START + args.frameId, false)
+        ];
+        this.miDebugger.globalFileSymbols("^b_[0-9]*$").then(globalsFileSymbols => {
+            this.globalSymbols = globalsFileSymbols.flatMap(fileSymbols => fileSymbols.symbols);
+            if (this.globalSymbols.length > 0) {
+                scopes.push(new Scope("Globals", 1, false));
+            }
+            response.body = { scopes: scopes };
+            this.sendResponse(response);
+        });
+    }
+
+    private debugProtocolVariable(dv: DebuggerVariable, varCat: VarCat) : DebugProtocol.Variable {
+        const showDetails = settings.displayVariableAttributes;
+        const reference = (showDetails || !!dv.children.size)
+                        ? this.variableHandles.create([dv.cobolName, varCat])
+                        : 0;
+        const value = showDetails
+                    ? `${dv.value || "null"} (${dv.displayableType})`
+                    :    dv.value || "null";
+        return {
+            name: dv.cobolName,
+            evaluateName: dv.cobolName,
+            value: value,
+            type: dv.displayableType,
+            variablesReference: reference
+        };
+    }
+
+    private async globalVariableRequest(response: DebugProtocol.VariablesResponse) : Promise<void> {
+        Promise
+            .all(this.globalSymbols.map(s => this.miDebugger.evalSymbol(s)))
+            .then(debuggerVariables =>
+                  debuggerVariables.map(v => this.debugProtocolVariable(v, VarCat.Global)))
+            .then(variables => {
+                response.body = { variables: variables };
+                this.sendResponse(response);
+            });
+    }
+
+    private async stackVariableRequest(response: DebugProtocol.VariablesResponse, id: number) : Promise<void> {
+        const [threadId, level] = this.frameIdToThreadAndLevel(id);
+        const stackVariables = await this.miDebugger.getStackVariables(threadId, level);
         response.body = {
-            scopes: scopes
+            variables: (stackVariables ?? []).map(v => this.debugProtocolVariable(v, VarCat.Local))
         };
         this.sendResponse(response);
     }
 
-    protected async variablesRequest(response: DebugProtocol.VariablesResponse, args: DebugProtocol.VariablesArguments): Promise<void> {
-        this.showVariableDetails = settings.displayVariableAttributes;
-
-        let id: number | string | VariableObject | ExtendedVariable;
-        if (args.variablesReference < VAR_HANDLES_START) {
-            id = args.variablesReference - STACK_HANDLES_START;
-        } else {
-            id = this.variableHandles.get(args.variablesReference);
-        }
-
-        if (typeof id == "number") {
-            try {
-                const variables: DebugProtocol.Variable[] = [];
-                const [threadId, level] = this.frameIdToThreadAndLevel(id);
-                const stackVariables = await this.miDebugger.getStackVariables(threadId, level);
-                if (stackVariables === undefined) {
-                    this.sendResponse(response);
-                }
-                globalThis.varGlobal = [];
-                for (const stackVariable of stackVariables) {
-                    let reference = 0;
-                    if (this.showVariableDetails || !!stackVariable.children.size) {
-                        reference = this.variableHandles.create(stackVariable.cobolName);
-                    }
-
-                    let value = stackVariable.value || "null";
-                    if (this.showVariableDetails) {
-                        value = stackVariable.displayableType;
-                    }
-
-                    variables.push({
-                        name: stackVariable.cobolName,
-                        evaluateName: stackVariable.cobolName,
-                        value: value,
-                        type: stackVariable.displayableType,
-                        variablesReference: reference
-                    });
-                    if(stackVariable.hasChildren){
-                        const child= stackVariable.children;
-                        for (var childs of stackVariable.children.entries()) {
-                            var key = childs[0];
-                            globalThis.varGlobal.push({
-                                "children": key,
-                                "father": stackVariable.cobolName
-                            })
-                        }
-                    }
-                }
-
-                response.body = {
-                    variables: variables
-                };
-                this.sendResponse(response);
-            } catch (err) {
-                this.sendErrorResponse(response, 1, `Could not expand variable: ${(<Error>err).toString()}`);
+    private lookupVariable (ref: number) : [string | number, VarCat] {
+        let id: number | string;
+        let cat: VarCat = VarCat.Local;
+        if (ref < VAR_HANDLES_START) {
+            if (ref >= STACK_HANDLES_START) {
+                cat = VarCat.Local;
+                id = ref - STACK_HANDLES_START;
+            } else {
+                cat = VarCat.Global;
+                id = ref;
             }
-        } else if (typeof id == "string") {
-            try {
+        } else {
+            [id, cat] = this.variableHandles.get(ref);
+        }
+        return [id, cat];
+    }
+
+    protected async variablesRequest(response: DebugProtocol.VariablesResponse, args: DebugProtocol.VariablesArguments): Promise<void> {
+        const showDetails = settings.displayVariableAttributes;
+        const [id, cat] = this.lookupVariable(args.variablesReference);
+        try {
+            response.body = { variables: [] };
+            if (typeof id == "number") {
+                if (cat == VarCat.Local) {
+                    log.info('stack:', id.toString());
+                    this.stackVariableRequest(response, id);
+                } else {
+                    log.info('global:', id.toString());
+                    this.globalVariableRequest(response);
+                }
+            } else if (typeof id == "string") {
                 // TODO: this evals on an (effectively) unknown thread for multithreaded programs.
-                const stackVariable = await this.miDebugger.evalCobField(id, 0, 0);
+                const stackVariable = (cat == VarCat.Local)
+                    ? await this.miDebugger.evalCobField(id)
+                    : await this.miDebugger.evalGlobalCobField(id);
                 if (stackVariable === undefined) {
                     this.sendResponse(response); // fail early and silently
                 }
 
                 let variables: DebugProtocol.Variable[] = [];
 
-                if (this.showVariableDetails) {
-                    variables = stackVariable.toDebugProtocolVariable(this.showVariableDetails);
+                if (showDetails) {
+                    variables = stackVariable.toDebugProtocolVariable(showDetails);
                 }
 
                 for (const child of stackVariable.children.values()) {
                     const childId = `${id}.${child.cobolName}`;
                     let reference = 0;
-                    if (this.showVariableDetails || !!child.children.size) {
-                        reference = this.variableHandles.create(childId);
+                    if (showDetails || !!child.children.size) {
+                        reference = this.variableHandles.create([childId, cat]);
                     }
 
                     let value = child.displayableType;
-                    if (!this.showVariableDetails) {
-                        const evaluatedChild = await this.miDebugger.evalCobField(childId, 0, 0);
+                    if (!showDetails) {
+                        const evaluatedChild = (cat == VarCat.Local)
+                            ? await this.miDebugger.evalCobField(childId)
+                            : await this.miDebugger.evalGlobalCobField(childId);
+                        // const evaluatedChild = await this.miDebugger.evalCobField(childId);
                         value = evaluatedChild !== undefined ? (evaluatedChild.value || "null") : "?";
                     }
 
@@ -529,14 +547,11 @@ export class GDBDebugSession extends DebugSession {
                     variables: variables
                 };
                 this.sendResponse(response);
-            } catch (err) {
-                this.sendErrorResponse(response, 1, `Could not expand variable: ${(<Error>err).toString()}`);
+            } else {
+                this.sendResponse(response);
             }
-        } else {
-            response.body = {
-                variables: []
-            };
-            this.sendResponse(response);
+        } catch (err) {
+            this.sendErrorResponse(response, 1, `Could not expand variable: ${(<Error>err).toString()}`);
         }
     }
 

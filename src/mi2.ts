@@ -1,12 +1,14 @@
-import { Breakpoint, IDebugger, MIError, Stack, Thread, DebuggerVariable } from "./debugger";
+import { Breakpoint, IDebugger, MIError, Stack, Thread, DebuggerVariable, FileSymbols, Symbol } from "./debugger";
 import * as ChildProcess from "child_process";
 import { EventEmitter } from "events";
 import { MINode, parseMI } from './parser.mi2';
+import * as MI2Decoder from './mi2-decoder';
 import * as path from "path";
 import * as fs from "fs";
 import { SourceMap } from "./parser.c";
 import { parseExpression, cleanRawValue } from "./functions";
 import * as vscode from 'vscode';
+import {DebugProtocol} from '@vscode/debugprotocol';
 import * as log from './log';
 
 const nonOutput = /(^(?:\d*|undefined)[*+\-=~@&^])([^*+\-=~@&]+[a-zA-Z]+)/;
@@ -527,37 +529,56 @@ export class MI2 extends EventEmitter implements IDebugger {
         });
     }
 
-    async changeVariable(name: string, rawValue: string): Promise<void> {
+    async changeVariable(name: string, rawValue: string): Promise<Array<DebugProtocol.InvalidatedAreas>> {
         log.debug("changeVariable");
-
         const functionName = await this.getCurrentFunctionName();
-
-        const cleanedRawValue = cleanRawValue(rawValue);
-
         try {
-            const variable = this.map.getVariableByCobol(`${functionName}.${name.toUpperCase()}`);
-
-            if (variable.attribute.type === "integer") {
-                await this.sendCommand(`gdb-set var ${variable.cName}=${cleanedRawValue}`);
-            } else if (this.hasCobPutFieldStringFunction && variable.cName.startsWith("f_")) {
-                await this.sendCommand(`data-evaluate-expression "(int)cob_put_field_str(&${variable.cName}, \\"${cleanedRawValue}\\")"`);
-            } else {
-                const finalValue = variable.formatValue(cleanedRawValue);
-                let cName = variable.cName;
-                if (variable.cName.startsWith("f_")) {
-                    cName += ".data";
-                }
-                await this.sendCommand(`data-evaluate-expression "(void)strncpy(${cName}, \\"${finalValue}\\", ${variable.size})"`);
-            }
+            const v = this.map.getVariableByCobol(`${functionName}.${name.toUpperCase()}`);
+            return this.setDebuggerVariable(v, rawValue);
         } catch (e) {
-            if ((<Error>e).message.includes("No symbol \"cob_put_field_str\"")) {
-                this.hasCobPutFieldStringFunction = false;
-                return this.changeVariable(name, rawValue);
-            }
             this.log("stderr", `Failed to set cob field value on ${functionName}.${name}`);
             this.log("stderr", (<Error>e).message);
             throw e;
         }
+    }
+
+    async changeGlobalVariable(name: string, rawValue: string): Promise<Array<DebugProtocol.InvalidatedAreas>> {
+        log.debug("changeGobalVariable");
+        const cobolName = name.toUpperCase();
+        try {
+            const v = this.map.getGlobalByCobol(cobolName);
+            return this.setDebuggerVariable(v, rawValue);
+        } catch (e) {
+            this.log("stderr", `Failed to set cob field value on ${cobolName} (global)`);
+            this.log("stderr", (<Error>e).message);
+            throw e;
+        }
+    }
+
+    private async setDebuggerVariable(v: DebuggerVariable, rawValue: string) : Promise<Array<DebugProtocol.InvalidatedAreas>> {
+        const cleanedRawValue = cleanRawValue(rawValue);
+        try {
+            if (v.attribute.type === "integer") {
+                await this.sendCommand(`gdb-set var ${v.cName}=${cleanedRawValue}`);
+            } else if (this.hasCobPutFieldStringFunction && v.cName.startsWith("f_")) {
+                await this.sendCommand(`data-evaluate-expression "(int)cob_put_field_str(&${v.cName}, \\"${cleanedRawValue}\\")"`);
+            } else {
+                const finalValue = v.formatValue(cleanedRawValue);
+                let cName = v.cName;
+                if (v.cName.startsWith("f_")) {
+                    cName += ".data";
+                }
+                await this.sendCommand(`data-evaluate-expression "(void)strncpy(${cName}, \\"${finalValue}\\", ${v.size})"`);
+            }
+        } catch (e) {
+            if ((<Error>e).message.includes("No symbol \"cob_put_field_str\"")) {
+                this.hasCobPutFieldStringFunction = false;
+                return this.setDebuggerVariable(v, rawValue);
+            }
+            this.log("stderr", `Failed to set cob field value on ${v.cName}`);
+            throw e;
+        }
+        return v.parent != null || v.hasChildren() ? ['variables'] : [];
     }
 
     loadBreakPoints(breakpoints: Breakpoint[]): Thenable<[boolean, Breakpoint][]> {
@@ -746,6 +767,23 @@ export class MI2 extends EventEmitter implements IDebugger {
         });
     }
 
+    async globalFileSymbols(nameFilterRegexp: string = null): Promise<FileSymbols[]> {
+        const nameFilterArg = nameFilterRegexp !== null
+                            ? `--name "${nameFilterRegexp}"`
+                            : "";
+        const resp = await this.sendCommand(`symbol-info-variables ${nameFilterArg}`,
+                                            failure_handling.Silence);
+        if (resp?.resultRecords.resultClass !== "done")
+            return [];
+        return (<any[]>resp.result("symbols.debug")).map(MI2Decoder.decodeFileSymbols);
+    }
+
+    async evalSymbol(s: Symbol): Promise<DebuggerVariable> {
+        const v = this.map.getGlobalByC(s.name);
+        await this.updateVariable(v);
+        return v;
+    }
+
     async getCurrentFunctionName(): Promise<string> {
         log.debug("getCurrentFunctionName");
         const response = await this.sendCommand("stack-info-frame", failure_handling.Silence);
@@ -771,8 +809,6 @@ export class MI2 extends EventEmitter implements IDebugger {
         for (const element of variables) {
             const key = MINode.valueOf(element, "name");
             const value = MINode.valueOf(element, "value");
-            //console.log("Key="+key);
-            //console.log("Value="+value);
 
             if (key.startsWith("b_")) {
                 const cobolVariable = this.map.getVariableByC(`${functionName}.${key}`);
@@ -814,7 +850,7 @@ export class MI2 extends EventEmitter implements IDebugger {
         for (const variableName of variableNames) {
             const variable = this.map.getVariableByC(`${functionName}.${variableName}`);
             if (variable) {
-                await this.evalVariable(variable, thread, frame);
+                await this.updateVariable(variable, thread, frame);
                 const value = variable.value;
                 finalExpression = `const ${variableName}=${value};` + finalExpression;
             }
@@ -829,7 +865,7 @@ export class MI2 extends EventEmitter implements IDebugger {
         }
     }
 
-    async evalCobField(name: string, thread: number, frame: number): Promise<DebuggerVariable> {
+    async evalCobField(name: string, thread: number = 0, frame: number = 0): Promise<DebuggerVariable> {
         log.debug("evalCobField", name);
 
         const functionName = await this.getCurrentFunctionName();
@@ -838,7 +874,8 @@ export class MI2 extends EventEmitter implements IDebugger {
 
         try {
             const variable = this.map.getVariableByCobol(`${functionName}.${name.toUpperCase()}`);
-            return await this.evalVariable(variable, thread, frame);
+            await this.updateVariable(variable, thread, frame);
+            return variable;
         } catch (e) {
             this.log("stderr", `Failed to eval cob field value on ${functionName}.${name}`);
             this.log("stderr", e.message);
@@ -846,8 +883,22 @@ export class MI2 extends EventEmitter implements IDebugger {
         }
     }
 
-    private async evalVariable(variable: DebuggerVariable, thread: number, frame: number): Promise<DebuggerVariable> {
-        log.debug("evalVariable", variable.cName);
+    async evalGlobalCobField(name: string): Promise<DebuggerVariable> {
+        log.debug("evalGlobalCobField", name);
+
+        try {
+            const variable = this.map.getGlobalByCobol(name);
+            await this.updateVariable(variable);
+            return variable;
+        } catch (e) {
+            this.log("stderr", `Failed to eval cob field value on ${name}`);
+            this.log("stderr", e.message);
+            throw e;
+        }
+    }
+
+    private async updateVariable(variable: DebuggerVariable, thread: number = 0, frame: number = 0): Promise<void> {
+        log.debug("updateVariable", (() => `${variable.cName} (${variable.cobolName})`));
 
         let command = "data-evaluate-expression ";
         if (thread != 0) {
@@ -862,10 +913,9 @@ export class MI2 extends EventEmitter implements IDebugger {
             command += variable.cName;
         }
 
-        let dataResponse;
         let value = null;
         try {
-            dataResponse = await this.sendCommand(command, failure_handling.Silence);
+            let dataResponse = await this.sendCommand(command, failure_handling.Silence);
             if (dataResponse !== undefined) {
                 value = dataResponse.result("value");
                 if (value === "0x0") {
@@ -875,7 +925,8 @@ export class MI2 extends EventEmitter implements IDebugger {
         } catch (error) {
             if (error.message.includes("No symbol \"cob_get_field_str_buffered\"")) {
                 this.hasCobGetFieldStringFunction = false;
-                return this.evalVariable(variable, thread, frame);
+                this.updateVariable(variable, thread, frame);
+                return;
             }
             this.log("stderr", error.message);
         }
@@ -885,8 +936,6 @@ export class MI2 extends EventEmitter implements IDebugger {
         } else {
             variable.setValue(value);
         }
-
-        return variable;
     }
 
     private logNoNewLine(type: string, msg: string): void {

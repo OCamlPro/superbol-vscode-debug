@@ -132,7 +132,6 @@ suite("C code parse", () => {
 		const cDirs = nativePath.resolve(srcDirs, 'c');
 		const cblDirs = nativePath.resolve(srcDirs, 'cbl');
 		const parsed = new SourceMap(cwd, ['subsubsample.cbl'], [cDirs, cblDirs]);
-		console.log (parsed.toString());
 
 		assert.equal(1, parsed.getLinesCount());
 		assert.equal(3, parsed.getVariablesCount());
@@ -143,5 +142,21 @@ suite("C code parse", () => {
 		const alnumGroup_ = parsed.findVariableByC('subsubsample_', alnumGroup.cName);
 		assert.equal(alnumGroup_.cobolName, alnumGroup.cobolName);
 		assert.equal(alnumGroup_.rootFileC, alnumGroup.rootFileC);
+	});
+	test("Globals", () => {
+		const parsed = new SourceMap(cwd, ['globals.cbl']);
+
+		assert.equal(6, parsed.getLinesCount());
+		assert.equal(8, parsed.getVariablesCount());
+		console.log(parsed.toString());
+
+		const fooVar = parsed.getGlobalByCobol('FOO');
+		assert.equal('FOO', fooVar.cobolName);
+		assert.equal('FOO', parsed.getGlobalByC(fooVar.cName).cobolName);
+		const barVar = parsed.getGlobalByCobol('BAR');
+		assert.equal(4, barVar.size);
+		const bar1Var = parsed.getGlobalByCobol('BAR.BAR-2');
+		assert.equal(3, bar1Var.size);
+		assert.equal('alphanumeric', bar1Var.displayableType);
 	});
 });

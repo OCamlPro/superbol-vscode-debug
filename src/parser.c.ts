@@ -30,8 +30,6 @@ const subroutineRegex = /\sPerform\s/i;
 const frame_ptrFindRegex = /frame\_ptr\-\-\;/;
 const fixOlderFormat = /cob\_trace\_stmt/;
 
-globalThis.varOccurs = [];
-
 function cobEncodeInvalidChars (s: string): string {
     // TODO: properly mimick `libcob:cob_encode_invalid_chars`
     // Meaning: Also replace any character in /[^a-zA-Z0-9-]/ into "_XX", where
@@ -58,6 +56,9 @@ function lookupLineInCobolFile(fileCobol: string, lineCobol: number) : string | 
     }
     return undefined;
 }
+
+const globalNamespace = "<global>"
+const globalNamespacePrefix = `${globalNamespace}.`
 
 export class Line {
     endPerformLine: number;   // 002 - stepOver in routines with "perform"
@@ -259,26 +260,28 @@ export class SourceMap {
                 if (match[3].startsWith("[")) {
                     size = parseInt(match[3].substring(1, match[3].length - 1));
                 }
-                const dataStorage = new DebuggerVariable(match[4], match[2], functionName, rootFileC,
+                const namespace = functionName ?? globalNamespace;
+                const dataStorage = new DebuggerVariable(match[4], match[2], namespace, rootFileC,
                      new Attribute(null, VariableType[match[1]], 0, 0), size);
-                this.dataStorages.set(`${functionName}.${dataStorage.cName}`, dataStorage);
-                this.variablesByC.set(`${functionName}.${dataStorage.cName}`, dataStorage);
-                this.variablesByCobol.set(`${functionName}.${dataStorage.cobolName.toUpperCase()}`, dataStorage);
+                this.dataStorages.set(`${namespace}.${dataStorage.cName}`, dataStorage);
+                this.variablesByC.set(`${namespace}.${dataStorage.cName}`, dataStorage);
+                this.variablesByCobol.set(`${namespace}.${dataStorage.cobolName.toUpperCase()}`, dataStorage);
             }
             match = fieldRegex.exec(line);
             if (match) {
+                const namespace = functionName ?? globalNamespace;
                 const attribute = this.attributes.get(`${cleanedFile}.${match[4]}`);
-                const dataStorage = this.dataStorages.get(`${functionName}.${match[3]}`);
-                const field = new DebuggerVariable(match[5], match[1], functionName, rootFileC,
+                const dataStorage = this.dataStorages.get(`${namespace}.${match[3]}`);
+                const field = new DebuggerVariable(match[5], match[1], namespace, rootFileC,
                     attribute, parseInt(match[2]));
 
-                this.variablesByC.set(`${functionName}.${field.cName}`, field);
+                this.variablesByC.set(`${namespace}.${field.cName}`, field);
 
                 if (dataStorage) {
                     dataStorage.addChild(field);
-                    this.variablesByCobol.set(`${functionName}.${dataStorage.cobolName.toUpperCase()}.${field.cobolName.toUpperCase()}`, field);
+                    this.variablesByCobol.set(`${namespace}.${dataStorage.cobolName.toUpperCase()}.${field.cobolName.toUpperCase()}`, field);
                 } else {
-                    this.variablesByCobol.set(`${functionName}.${field.cobolName.toUpperCase()}`, field);
+                    this.variablesByCobol.set(`${namespace}.${field.cobolName.toUpperCase()}`, field);
                 }
             }
             match = fileIncludeRegex.exec(line);
@@ -332,6 +335,25 @@ export class SourceMap {
         return null;
     }
 
+    public findGlobalByC(cName: string): DebuggerVariable {
+        for (const key of this.variablesByC.keys()) {
+            if (key.startsWith(globalNamespacePrefix) && key.endsWith(`.${cName}`)) {
+                return this.variablesByC.get(key);
+            }
+        }
+        return null;
+    }
+
+    public globalCVariables() {
+        return Array.from(this.variablesByC.entries())
+                    .filter(([k,_]) => k.startsWith(globalNamespacePrefix))
+                    .map(([_,v]) => v);
+    }
+
+    public getGlobalByC(varC: string): DebuggerVariable {
+        return this.getVariableByC(`${globalNamespacePrefix}${varC}`);
+    }
+
     public getVariableByC(varC: string): DebuggerVariable {
         if (this.variablesByC.has(varC)) {
             return this.variablesByC.get(varC);
@@ -350,6 +372,10 @@ export class SourceMap {
 
     public getVariableByCobol(path: string): DebuggerVariable {
         return this.variablesByCobol.get(path);
+    }
+
+    public getGlobalByCobol(name: string): DebuggerVariable {
+        return this.variablesByCobol.get(`${globalNamespacePrefix}${name}`);
     }
 
     public hasLineCobol(fileC: string, lineC: number): boolean {
