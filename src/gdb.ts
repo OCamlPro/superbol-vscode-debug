@@ -19,6 +19,7 @@ import * as path from "path";
 import {MI2} from './mi2';
 import {CoverageStatus} from './coverage';
 import {DebuggerSettings} from './settings';
+import * as log from './log';
 
 const STACK_HANDLES_START = 1000;
 const VAR_HANDLES_START = 512 * 256 + 1000;
@@ -42,7 +43,7 @@ export interface LaunchRequestArguments extends DebugProtocol.LaunchRequestArgum
     sourceDirs: string[];
 }
 
-export interface AttachRequestArguments extends DebugProtocol.LaunchRequestArguments {
+export interface AttachRequestArguments extends DebugProtocol.AttachRequestArguments {
     cwd: string | null;
     target: string;
     arguments: string;
@@ -56,6 +57,14 @@ export interface AttachRequestArguments extends DebugProtocol.LaunchRequestArgum
 }
 
 const settings = new DebuggerSettings();
+
+function initLogLevel(verbose: boolean) {
+    if (verbose) {
+        log.setLevel(log.Level.Debug);
+    } else {
+        log.setLevel(log.Level.Info);
+    }
+}
 
 export class GDBDebugSession extends DebugSession {
     protected variableHandles = new Handles<string | VariableObject | ExtendedVariable>(VAR_HANDLES_START);
@@ -78,11 +87,13 @@ export class GDBDebugSession extends DebugSession {
     }
 
     protected launchRequest(response: DebugProtocol.LaunchResponse, args: LaunchRequestArguments): void {
+        initLogLevel(args.verbose);
+
         this.showCoverage = args.coverage;
         this.started = false;
         this.attached = false;
 
-        this.miDebugger = new MI2(settings.gdbPath, args.gdbargs, args.env, args.verbose, args.noDebug, args.gdbtty, settings.cobcrunPath, args.useCobcrun, args.sourceDirs);
+        this.miDebugger = new MI2(settings.gdbPath, args.gdbargs, args.env, args.noDebug, args.gdbtty, settings.cobcrunPath, args.useCobcrun, args.sourceDirs);
         this.miDebugger.on("launcherror", (err: Error) => this.launchError(err));
         this.miDebugger.on("quit", () => this.quitEvent());
         this.miDebugger.on("exited-normally", () => this.quitEvent());
@@ -123,6 +134,8 @@ export class GDBDebugSession extends DebugSession {
     }
 
     protected attachRequest(response: DebugProtocol.AttachResponse, args: AttachRequestArguments): void {
+        initLogLevel(args.verbose);
+
         if (!args.pid && !args.remoteDebugger) {
             this.sendErrorResponse(
                 response,
@@ -136,7 +149,7 @@ export class GDBDebugSession extends DebugSession {
         this.attached = true;
         this.started = false;
 
-        this.miDebugger = new MI2(settings.gdbPath, args.gdbargs, args.env, args.verbose, false, false, "", false, args.sourceDirs);
+        this.miDebugger = new MI2(settings.gdbPath, args.gdbargs, args.env, false, false, "", false, args.sourceDirs);
         this.miDebugger.on("launcherror", (err: Error) => this.launchError(err));
         this.miDebugger.on("quit", () => this.quitEvent());
         this.miDebugger.on("exited-normally", () => this.quitEvent());
