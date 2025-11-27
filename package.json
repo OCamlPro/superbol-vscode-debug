@@ -50,6 +50,17 @@
 				"language": "cobol"
 			}
 		],
+		"languages": [
+			{
+				"id": "cobol",
+				"aliases": [
+					"COBOL"
+				],
+				"filenamePatterns": [
+					"*.[cC]{ob,OB,bl,BL,py,PY,bx,BX,bsql}"
+				]
+			}
+		],
 		"debuggers": [
 			{
 				"type": "superbol-gdb",
