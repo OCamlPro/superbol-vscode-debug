@@ -744,9 +744,7 @@ export class MI2 extends EventEmitter implements IDebugger {
         const stack = <Stack[]>result.result("stack");
         return stack.map(element => {
             const level = MINode.valueOf(element, "@frame.level");
-            const addr = MINode.valueOf(element, "@frame.addr");
             const func = MINode.valueOf(element, "@frame.func");
-            const filename = MINode.valueOf(element, "@frame.file");
             let file: string = MINode.valueOf(element, "@frame.fullname");
             if (file) {
                 file = path.normalize(file);
@@ -759,14 +757,10 @@ export class MI2 extends EventEmitter implements IDebugger {
                 line = parseInt(lnstr);
             }
 
-            const map = this.map.getLineCobol(file, line);
             return {
-                address: addr,
-                fileName: path.basename(map.fileCobol),
-                file: map.fileCobol,
                 function: func || from,
                 level: level,
-                line: map.lineCobol
+                line: this.map.getLineCobol(file, line)
             };
         });
     }
