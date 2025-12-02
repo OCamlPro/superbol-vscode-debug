@@ -236,7 +236,7 @@ export class GDBDebugSession extends DebugSession {
             return;
 
         if (this.showCoverage) {
-            this.coverageStatus.show(this.miDebugger.getGcovFiles(), this.miDebugger.getSourceMap()).catch((err: Error) => console.log(err));
+            this.coverageStatus.show(this.miDebugger.getGcovFiles(), this.miDebugger.sourceMap()).catch((err: Error) => console.log(err));
         } else {
             this.coverageStatus.hide();
         }

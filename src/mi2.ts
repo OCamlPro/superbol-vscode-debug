@@ -936,7 +936,7 @@ export class MI2 extends EventEmitter implements IDebugger {
         return Array.from(this.gcovFiles);
     }
 
-    getSourceMap(): SourceMap {
+    sourceMap(): SourceMap {
         return this.map;
     }
 

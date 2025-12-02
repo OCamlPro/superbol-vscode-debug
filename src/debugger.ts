@@ -513,7 +513,7 @@ export interface IDebugger {
 
     sendUserInput(command: string, threadId: number, frameLevel: number): Thenable<any>;
 
-    getSourceMap(): SourceMap;
+    sourceMap(): SourceMap;
 }
 
 export class VariableObject {
