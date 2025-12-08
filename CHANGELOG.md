@@ -1,5 +1,6 @@
 ## Next
 
+* Show COBOL statements in entries of stackframe summary [PR #38](https://github.com/ocamlpro/superbol-vscode-debug/pull/38)
 * Remove `gdbpath` and `libcobpath` from launch configurations (these are provided in extension settings) [PR #36](https://github.com/ocamlpro/superbol-vscode-debug/pull/36)
 * Fix enforcement of a default `preLaunchTask` that is not available [PR #34](https://github.com/ocamlpro/superbol-vscode-debug/pull/34)
 * Support cases where the COBOL source code and the corresponding C files are in distinct directories [PR #29](https://github.com/ocamlpro/superbol-vscode-debug/pull/29)

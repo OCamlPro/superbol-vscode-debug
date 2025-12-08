@@ -14,7 +14,7 @@
 				// "--user-data-dir=${workspaceFolder}/.vscode-test/user-data",
 				"--extensionDevelopmentPath=${workspaceFolder}",
 				"--trace-deprecation",
-				"${workspaceFolder}/.vscode-test-workspace",
+				"${workspaceFolder}/test/resources",
 			],
 			"autoAttachChildProcesses": true,
 			"sourceMaps": true,

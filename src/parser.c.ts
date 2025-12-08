@@ -39,8 +39,29 @@ function cobEncodeInvalidChars (s: string): string {
     return s.replace("-","__");
 }
 
+// Minimalistic one-entry cache.
+let currentCOBOLFileName: string = null;
+let currentCOBOLFileContents: string[] = [];
+
+function lookupLineInCobolFile(fileCobol: string, lineCobol: number) : string | undefined {
+    if (fileCobol && currentCOBOLFileName != fileCobol) {
+        currentCOBOLFileName = fileCobol;
+        try {
+            currentCOBOLFileContents = fs.readFileSync(fileCobol).toString().split('\n');
+        } catch (e) {
+            log.debug(e.message);
+            currentCOBOLFileContents = [];
+        }
+    }
+    if (currentCOBOLFileContents) {
+        return currentCOBOLFileContents[lineCobol - 1];
+    }
+    return undefined;
+}
+
 export class Line {
     endPerformLine: number;   // 002 - stepOver in routines with "perform"
+    public cobolLine: string | undefined;
 
     public constructor
         (public fileCobol: string,
@@ -50,6 +71,7 @@ export class Line {
          public lineC: number,
          public functionName: string) {
         this.endPerformLine = -1;          // 002 - stepOver in routines with "perform"
+        this.cobolLine = lookupLineInCobolFile (fileCobol, lineCobol);
     }
 
     public toString(): string {

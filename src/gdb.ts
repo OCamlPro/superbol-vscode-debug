@@ -391,23 +391,21 @@ export class GDBDebugSession extends DebugSession {
 
     protected stackTraceRequest(response: DebugProtocol.StackTraceResponse, args: DebugProtocol.StackTraceArguments): void {
         this.miDebugger.getStack(args.levels, args.threadId).then(stack => {
-            const ret: StackFrame[] = [];
-            stack.forEach(element => {
-                let source: Source = undefined;
-                const file = element.file;
-                if (file) {
-                    source = new Source(element.fileName, file);
-                }
-
-                ret.push(new StackFrame(
+            const ret = stack.map(element => {
+                const file = element.line.fileCobol;
+                const fileBasename = path.basename(file);
+                const cobolLine = element.line.cobolLine?.trim();
+                const frameDescr = cobolLine
+                    ? `${element.function} (${cobolLine})`
+                    : `${element.function}`;
+                return new StackFrame(
                     this.threadAndLevelToFrameId(args.threadId, element.level),
-                    element.function + "@" + element.address,
-                    source,
-                    element.line,
-                    0));
+                    frameDescr, // + "@" + element.address,
+                    file ? new Source(fileBasename, file) : undefined,
+                    element.line.lineCobol, 0);
             });
             response.body = {
-                stackFrames: ret
+                stackFrames: Array.from(ret)
             };
             this.sendResponse(response);
         }, (err: Error) => {

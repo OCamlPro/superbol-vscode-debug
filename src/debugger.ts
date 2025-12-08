@@ -1,7 +1,7 @@
 import {MINode} from "./parser.mi2";
 import {DebugProtocol} from "@vscode/debugprotocol/lib/debugProtocol";
 import {removeLeadingZeroes} from "./functions";
-import {SourceMap} from "./parser.c";
+import {SourceMap, Line} from "./parser.c";
 
 export interface Breakpoint {
     file?: string;
@@ -19,11 +19,8 @@ export interface Thread {
 
 export interface Stack {
     level: number;
-    address: string;
     function: string;
-    fileName: string;
-    file: string;
-    line: number;
+    line: Line;
 }
 
 const repeatTimeRegex = /(\"\,\s|^)\'(\s|0)\'\s\<repeats\s(\d+)\stimes\>/i;
