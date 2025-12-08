@@ -13,7 +13,7 @@ import {
     ThreadEvent
 } from '@vscode/debugadapter';
 import {DebugProtocol} from '@vscode/debugprotocol';
-import {Breakpoint, DebuggerVariable, FileSymbols, Symbol, VariableObject} from './debugger';
+import {Breakpoint, DebuggerVariable, localizeSymbols} from './debugger';
 import {MINode} from './parser.mi2';
 import * as path from "path";
 import {MI2} from './mi2';
@@ -27,6 +27,11 @@ const VAR_HANDLES_START = 512 * 256 + 1000;
 class ExtendedVariable {
     constructor(public _name: string, public _options: unknown) {
     }
+}
+
+function stripPathExtensions(p1: string) {
+    const p2 = path.basename(p1, path.extname(p1));
+    return (p2 === p1) ? p1 : stripPathExtensions(p2);
 }
 
 export interface LaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
@@ -79,6 +84,7 @@ export class GDBDebugSession extends DebugSession {
     protected miDebugger: MI2;
     coverageStatus: CoverageStatus;
     private showCoverage: boolean = true;
+    private readonly showDetails = settings.displayVariableAttributes;
 
     protected initializeRequest(response: DebugProtocol.InitializeResponse, _args: DebugProtocol.InitializeRequestArguments): void {
         response.body.supportsSetVariable = true;
@@ -256,33 +262,6 @@ export class GDBDebugSession extends DebugSession {
         this.sendResponse(response);
     }
 
-    protected async setVariableRequest(response: DebugProtocol.SetVariableResponse, args: DebugProtocol.SetVariableArguments): Promise<void> {
-        const showDetails = settings.displayVariableAttributes;
-        const [id, cat] = this.lookupVariable(args.variablesReference);
-        try {
-            let name = args.name;
-            if (typeof id == "string") {
-                name = `${id}.${args.name}`;
-                if (showDetails && args.name === "value") {
-                    name = id;
-                }
-            }
-            if (!showDetails || args.name === "value") {
-                const invalidatedAreas = (cat == VarCat.Global) ?
-                    await this.miDebugger.changeGlobalVariable(name, args.value) :
-                    await this.miDebugger.changeVariable(name, args.value);
-                response.body = { value: args.value };
-                if (invalidatedAreas.length > 0) {
-                    // Trigger an update of invalidated areas.
-                    this.sendEvent(new DebugAdapter.InvalidatedEvent(invalidatedAreas));
-                }
-            }
-            this.sendResponse(response);
-        } catch (err) {
-            this.sendErrorResponse(response, 11, `Could not continue: ${<string>err}`);
-        }
-    }
-
     protected setFunctionBreakPointsRequest(response: DebugProtocol.SetFunctionBreakpointsResponse, args: DebugProtocol.SetFunctionBreakpointsArguments): void {
         const cb = () => {
             this.debugReady = true;
@@ -421,28 +400,35 @@ export class GDBDebugSession extends DebugSession {
     }
 
     // TODO: invalidate on some operations?
-    private globalSymbols: Symbol[] = [];
+    private globalVariables: Map<number, Promise<DebuggerVariable[]>> = new Map();
 
-    protected scopesRequest(response: DebugProtocol.ScopesResponse, args: DebugProtocol.ScopesArguments): void {
+    protected async scopesRequest(response: DebugProtocol.ScopesResponse, args: DebugProtocol.ScopesArguments) {
         const scopes = [
             new Scope("Local", STACK_HANDLES_START + args.frameId, false)
         ];
-        this.miDebugger.globalFileSymbols("^b_[0-9]*$").then(globalsFileSymbols => {
-            this.globalSymbols = globalsFileSymbols.flatMap(fileSymbols => fileSymbols.symbols);
-            if (this.globalSymbols.length > 0) {
-                scopes.push(new Scope("Globals", 1, false));
+        const filesSymbols = await this.miDebugger.globalStorageSymbols();
+        this.globalVariables.clear();
+        await Promise.all(filesSymbols.flatMap(fileSymbols => {
+            if (fileSymbols.symbols.length > 0) {
+                const base = stripPathExtensions(fileSymbols.filename);
+                const scopeId = scopes.length;
+                const scopeVariables = localizeSymbols(fileSymbols).map(s => this.miDebugger.evalSymbol(s));
+                this.globalVariables.set(scopeId, Promise.all(scopeVariables));
+                scopes.push(new Scope(`Globals (${base})`, scopeId, false));
+                return scopeVariables;
+            } else {
+                return [];
             }
-            response.body = { scopes: scopes };
-            this.sendResponse(response);
-        });
+        }));
+        response.body = { scopes: scopes };
+        this.sendResponse(response);
     }
 
     private debugProtocolVariable(dv: DebuggerVariable, varCat: VarCat) : DebugProtocol.Variable {
-        const showDetails = settings.displayVariableAttributes;
-        const reference = (showDetails || !!dv.children.size)
-                        ? this.variableHandles.create([dv.cobolName, varCat])
+        const reference = (this.showDetails || !!dv.children.size)
+                        ? this.variableHandles.create([dv.cName, varCat])
                         : 0;
-        const value = showDetails
+        const value = this.showDetails
                     ? `${dv.value || "null"} (${dv.displayableType})`
                     :    dv.value || "null";
         return {
@@ -454,15 +440,12 @@ export class GDBDebugSession extends DebugSession {
         };
     }
 
-    private async globalVariableRequest(response: DebugProtocol.VariablesResponse) : Promise<void> {
-        Promise
-            .all(this.globalSymbols.map(s => this.miDebugger.evalSymbol(s)))
-            .then(debuggerVariables =>
-                  debuggerVariables.map(v => this.debugProtocolVariable(v, VarCat.Global)))
-            .then(variables => {
-                response.body = { variables: variables };
-                this.sendResponse(response);
-            });
+    private async globalVariableRequest(response: DebugProtocol.VariablesResponse, scopeId: number): Promise<void> {
+        const scopeVariables = await this.globalVariables.get(scopeId);
+        response.body = {
+            variables: scopeVariables.map(v => this.debugProtocolVariable(v, VarCat.Global))
+        };
+        this.sendResponse(response);
     }
 
     private async stackVariableRequest(response: DebugProtocol.VariablesResponse, id: number) : Promise<void> {
@@ -492,46 +475,41 @@ export class GDBDebugSession extends DebugSession {
     }
 
     protected async variablesRequest(response: DebugProtocol.VariablesResponse, args: DebugProtocol.VariablesArguments): Promise<void> {
-        const showDetails = settings.displayVariableAttributes;
         const [id, cat] = this.lookupVariable(args.variablesReference);
+        response.body = { variables: [] };
         try {
-            response.body = { variables: [] };
             if (typeof id == "number") {
                 if (cat == VarCat.Local) {
-                    log.info('stack:', id.toString());
                     this.stackVariableRequest(response, id);
                 } else {
-                    log.info('global:', id.toString());
-                    this.globalVariableRequest(response);
+                    this.globalVariableRequest(response, id);
                 }
             } else if (typeof id == "string") {
                 // TODO: this evals on an (effectively) unknown thread for multithreaded programs.
-                const stackVariable = (cat == VarCat.Local)
-                    ? await this.miDebugger.evalCobField(id)
-                    : await this.miDebugger.evalGlobalCobField(id);
-                if (stackVariable === undefined) {
+                const v = (cat == VarCat.Local)
+                    ? await this.miDebugger.evalCVariable(id)
+                    : await this.miDebugger.evalCGlobal(id);
+                if (v === undefined) {
                     this.sendResponse(response); // fail early and silently
                 }
 
                 let variables: DebugProtocol.Variable[] = [];
 
-                if (showDetails) {
-                    variables = stackVariable.toDebugProtocolVariable(showDetails);
+                if (this.showDetails) {
+                    variables = v.toDebugProtocolVariable(this.showDetails);
                 }
 
-                for (const child of stackVariable.children.values()) {
-                    const childId = `${id}.${child.cobolName}`;
+                for (const child of v.children.values()) {
                     let reference = 0;
-                    if (showDetails || !!child.children.size) {
-                        reference = this.variableHandles.create([childId, cat]);
+                    if (this.showDetails || !!child.children.size) {
+                        reference = this.variableHandles.create([`${child.cName}`, cat]);
                     }
 
                     let value = child.displayableType;
-                    if (!showDetails) {
+                    if (!this.showDetails) {
                         const evaluatedChild = (cat == VarCat.Local)
-                            ? await this.miDebugger.evalCobField(childId)
-                            : await this.miDebugger.evalGlobalCobField(childId);
-                        // const evaluatedChild = await this.miDebugger.evalCobField(childId);
+                            ? await this.miDebugger.evalCVariable(child.cName)
+                            : await this.miDebugger.evalCGlobal(child.cName);
                         value = evaluatedChild !== undefined ? (evaluatedChild.value || "null") : "?";
                     }
 
@@ -552,6 +530,47 @@ export class GDBDebugSession extends DebugSession {
             }
         } catch (err) {
             this.sendErrorResponse(response, 1, `Could not expand variable: ${(<Error>err).toString()}`);
+        }
+    }
+
+    protected async setVariableRequest(response: DebugProtocol.SetVariableResponse, args: DebugProtocol.SetVariableArguments): Promise<void> {
+        const [id, cat] = this.lookupVariable(args.variablesReference);
+        let invalidatedAreas = [];
+        if (this.showDetails && args.name !== "value") {
+            this.sendErrorResponse(response, 14, `${args.name} cannot be changed`);
+            return;
+        }
+        const editDetails = this.showDetails && args.name === "value";
+        // log.debug("setVartiableRequest", args.name, args.value, args.variablesReference.toString(), id.toString());
+        try {
+            if (cat == VarCat.Local) {
+                invalidatedAreas = editDetails && typeof id == "string"
+                    ? await this.miDebugger.changeCVariable(id.toString(), args.value)
+                    : await this.miDebugger.changeVariable(args.name, args.value);
+                response.body = { value: args.value };
+            } else if (cat == VarCat.Global) {
+                let cName: string = null;
+                if (typeof id == "number") {
+                    // TODO: can we be editing "value" details (ie. can showDetails hold here)?
+                    const vars = await this.globalVariables.get(id);
+                    cName = vars.find(v => v.cobolName == args.name)?.cName; // TODO: check ambiguous item names?
+                } else if (typeof id == "string" && !editDetails) {
+                    cName = this.miDebugger.lookupGlobalCobolByCName(args.name, id)?.cName;
+                } else if (typeof id == "string") {
+                    cName = id;
+                }
+                if (cName !== null) {
+                    invalidatedAreas = await this.miDebugger.changeGlobalCVariable(cName, args.value);
+                    response.body = { value: args.value };
+                }
+            }
+            if (invalidatedAreas.length > 0) {
+                // Trigger an update of invalidated areas.
+                this.sendEvent(new DebugAdapter.InvalidatedEvent(invalidatedAreas));
+            }
+            this.sendResponse(response);
+        } catch (err) {
+            this.sendErrorResponse(response, 11, `Could not set ${args.name}: ${<string>err}`);
         }
     }
 

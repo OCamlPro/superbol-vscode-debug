@@ -36,6 +36,17 @@ export interface Symbol {
     description: string;
 }
 
+export interface LocalizedSymbol {
+    symbol: Symbol;
+    filename: string;
+}
+
+export function localizeSymbols(fileSymbols: FileSymbols): LocalizedSymbol[] {
+    return fileSymbols.symbols.map(s => {
+        return { symbol: s, filename: fileSymbols.filename }
+    });
+}
+
 const repeatTimeRegex = /(\"\,\s|^)\'(\s|0)\'\s\<repeats\s(\d+)\stimes\>/i;
 
 export class CobolFieldDataParser {
@@ -408,19 +419,20 @@ export class Attribute {
 
 export class DebuggerVariable {
 
-    public displayableType: string;
-    public details: VariableDetail[];
+    public readonly displayableType: string;
+    public readonly details: VariableDetail[];
 
     public constructor(
-        public cobolName: string,
-        public cName: string,
-        public functionName: string,
-        public rootFileC: string,
-        public attribute: Attribute = null,
-        public size: number = null,
+        public readonly cobolName: string,
+        public readonly cName: string,
+        public readonly functionName: string,
+        public readonly rootFileC: string,
+        public readonly isField: boolean,
+        public readonly attribute: Attribute = null,
+        public readonly size: number = null,
         public value: string = null,
         public parent: DebuggerVariable = null,
-        public children: Map<string, DebuggerVariable> = new Map<string, DebuggerVariable>()) {
+        public readonly children: Map<string, DebuggerVariable> = new Map<string, DebuggerVariable>()) {
         [this.displayableType, this.details] = this.attribute.getDetails(this.size);
     }
 
@@ -512,17 +524,16 @@ export interface IDebugger {
 
     getStackVariables(thread: number, frame: number): Thenable<DebuggerVariable[]>;
 
-    globalFileSymbols(nameFilterRegexp?: string): Thenable<FileSymbols[]>;
+    globalStorageSymbols(): Thenable<FileSymbols[]>;
 
-    evalSymbol(s: Symbol): Promise<DebuggerVariable>;
+    evalSymbol(s: LocalizedSymbol): Promise<DebuggerVariable>;
+
     evalExpression(name: string, thread: number, frame: number): Promise<string>;
-    evalCobField(name: string, thread: number, frame: number): Promise<DebuggerVariable>;
-    evalGlobalCobField(name: string): Promise<DebuggerVariable>;
 
     isReady(): boolean;
 
     changeVariable(name: string, rawValue: string): Promise<Array<DebugProtocol.InvalidatedAreas>>;
-    changeGlobalVariable(name: string, rawValue: string): Promise<Array<DebugProtocol.InvalidatedAreas>>;
+    changeGlobalCVariable(cName: string, rawValue: string): Promise<Array<DebugProtocol.InvalidatedAreas>>;
 
     examineMemory(from: number, to: number): Thenable<any>;
 
