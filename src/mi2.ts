@@ -46,29 +46,11 @@ export class MI2 extends EventEmitter implements IDebugger {
     constructor(public gdbpath: string, public gdbArgs: string[], procEnv: NodeJS.ProcessEnv, public noDebug: boolean, public gdbtty: boolean, public cobcrunPath: string, public useCobcrun: boolean, public sourceDirs: string[]) {
         super();
         if (procEnv) {
-            const env = {};
-            // Duplicate process.env so we don't override it
-            for (const key in process.env)
-                if (key in process.env) {
-                    env[key] = process.env[key];
-                }
-            // Overwrite with user specified variables
-            for (const key in procEnv) {
-                if (key in procEnv) {
-                    if (procEnv === null) {
-                        delete env[key];
-                    } else {
-                        env[key] = procEnv[key];
-                    }
-                }
-            }
-            this.procEnv = env;
+            this.procEnv = {...process.env, ...procEnv};
         }
     }
 
     load(cwd: string, target: string, targetargs: string, group: string[], gdbtty: boolean): Thenable<unknown> {
-        group.map(e => { path.join(cwd, e); });
-
         return new Promise(async (resolve, reject) => {
             if (!fs.existsSync(cwd)) {
                 reject(new Error("cwd does not exist."));
@@ -123,7 +105,6 @@ export class MI2 extends EventEmitter implements IDebugger {
         if (!path.isAbsolute(target)) {
             target = path.join(cwd, target);
         }
-        group.map(e => { path.join(cwd, e) });
 
         return new Promise((resolve, reject) => {
             if (!fs.existsSync(cwd)) {
