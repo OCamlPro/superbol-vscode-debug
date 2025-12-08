@@ -9,7 +9,7 @@ import { parseExpression, cleanRawValue } from "./functions";
 import * as vscode from 'vscode';
 import * as log from './log';
 
-const nonOutput = /(^(?:\d*|undefined)[*+\-=~@&^])([^*+\-=~@&]{1,})/;
+const nonOutput = /(^(?:\d*|undefined)[*+\-=~@&^])([^*+\-=~@&]+[a-zA-Z]+)/;
 const gdbRegex = /(?:\d*|undefined)\(gdb\)/;
 const numRegex = /\d+/;
 const gcovRegex = /"([0-9a-z_\-/\s\\:]+\.o)"/gi;
@@ -219,7 +219,7 @@ export class MI2 extends EventEmitter implements IDebugger {
         return false;
     }
 
-    onOutput(linesStr: string) {
+    private onOutput(linesStr: string) {
         const lines = linesStr.split('\n');
         lines.forEach(line => {
             if (couldBeOutput(line)) {
@@ -227,120 +227,120 @@ export class MI2 extends EventEmitter implements IDebugger {
                     this.log("stdout", line);
                 }
             } else {
-                const parsed = parseMI(line);
-                // if (this.verbose) {
-                    // this.log("stderr", "GDB -> App: " + JSON.stringify(parsed));
-                // }
-                let handled = false;
-                if (parsed.token !== undefined) {
-                    if (this.handlers[parsed.token]) {
-                        this.handlers[parsed.token](parsed);
-                        delete this.handlers[parsed.token];
-                        handled = true;
-                    }
-                }
-                if (!handled && parsed.resultRecords && parsed.resultRecords.resultClass == "error") {
-                    this.log("stderr", <string>parsed.result("msg") || line);
-                }
-                if (parsed.outOfBandRecord) {
-                    parsed.outOfBandRecord.forEach(async record => {
-                        if (record.isStream) {
-                            this.log(record.type, record.content);
-                        } else {
-                            if (record.type == "exec") {
-                                this.emit("exec-async-output", parsed);
-                                // 002 - stepOver in routines with "perform"
-                                subroutine = this.map.hasLineSubroutine(parsed.record('frame.fullname'), parseInt(parsed.record('frame.line')));
-                                // 002
-                                if (record.asyncClass == "running") {
-                                    this.emit("running", parsed);
-                                } else if (record.asyncClass == "stopped") {
-                                    const reason = <string>parsed.record("reason");
-                                    log.debug("stop:", reason);
-                                    if (reason == "breakpoint-hit") {
-                                        if (!this.map.hasLineCobol(parsed.record('frame.fullname'), parseInt(parsed.record('frame.line')))) {
-                                            if(this.lastStepCommand==this.continue && parsed.record("disp")=="del")
-                                                void this.lastStepCommand();
-                                            else
-                                                this.stepOver(); // 002 - stepInto/stepOut in routines with "perform" 
-                                        } else {
-                                            this.emit("step-end", parsed);
-                                        }
-                                    } else if (reason == "location-reached") { // 002 - stepOver in routines with "perform" 
-                                        if (!this.map.hasLineCobol(parsed.record('frame.fullname'), parseInt(parsed.record('frame.line')))) {
-                                            this.stepOver();
-                                        } else {
-                                            this.emit("step-end", parsed);
-                                        }
-                                    } else if (reason == "end-stepping-range") {
-                                        if (!this.map.hasLineCobol(<string>parsed.record('frame.fullname'), parseInt(<string>parsed.record('frame.line')))) {
-                                            void this.lastStepCommand().then();
-                                        } else {
-                                            this.emit("step-end", parsed);
-                                        }
-                                    } else if (reason == "function-finished") {
-                                        if (!this.map.hasLineCobol(<string>parsed.record('frame.fullname'), parseInt(<string>parsed.record('frame.line')))) {
-                                            void this.lastStepCommand();
-                                        } else {
-                                            this.emit("step-out-end", parsed);
-                                        }
-                                    } else if (reason == "signal-received") {
-                                        this.emit("signal-stop", parsed);
-                                    } else if (reason == "exited-normally") {
-                                        this.emit("exited-normally", parsed);
-                                    } else if (reason == "exited") { // exit with error code != 0
-                                        log.info("Program exited with code " + <string>parsed.record("exit-code"));
-                                        this.emit("quit", parsed);
-                                    } else if (reason == "solib-event") {
-                                        this.onSolibEvent (parsed);
-                                        this.resume ();
-                                    } else {
-                                        if (!this.map.hasLineCobol(<string>parsed.record('frame.fullname'), parseInt(<string>parsed.record('frame.line')))) {
-                                            void this.continue();
-                                        } else {
-                                            log.error("Not implemented stop reason (assuming exception):", reason);
-                                            this.emit("stopped", parsed);
-                                        }
-                                    }
-                                } else {
-                                    log.debug (() => JSON.stringify(parsed));
-                                }
-                            } else if (record.type == "notify") {
-                                if (record.asyncClass == "thread-created") {
-                                    this.emit("thread-created", parsed);
-                                } else if (record.asyncClass == "thread-exited") {
-                                    this.emit("thread-exited", parsed);
-                                } else if (record.asyncClass == "library-loaded") {
-                                    // Possibly unreachable if `stop-on-solib-events` is on; still handle in case.
-                                    let libname = record.output.find((e) => e[0] == "target-name")?.[1];
-                                    if (this.map.addLib (libname)) {
-                                        log.debug (() => `Added library to map: ${libname}`);
-                                        log.debug (() => this.map.toString ("updated"));
-                                        this.reloadBreakPoints ();
-                                    }
-                                } else if (record.asyncClass == "library-unloaded") {
-                                    // Ditto: possibly unreachable if `stop-on-solib-events` is on; still handle in case.
-                                    let libname = record.output.find((e) => e[0] == "target-name")?.[1];
-                                    if (this.map.remLib (libname)) {
-                                        log.debug (() => this.map.toString ("updated"));
-                                        this.reloadBreakPoints ();
-                                    }
-                                } else {
-                                    log.debug (() => JSON.stringify(parsed));
-                                }
-                            }
-                        }
-                    });
-                    handled = true;
-                }
-                if (parsed.token == undefined && parsed.resultRecords == undefined && parsed.outOfBandRecord.length == 0) {
-                    handled = true;
-                }
-                if (!handled) {
-                    log.error("Unhandled: " + JSON.stringify(parsed));
-                }
+                this.onMINode(parseMI(line));
             }
         });
+    }
+
+    private onMINode(parsed: MINode) {
+        let handled = false;
+        if (parsed && parsed.token !== undefined) {
+            if (this.handlers[parsed.token]) {
+                this.handlers[parsed.token](parsed);
+                delete this.handlers[parsed.token];
+                handled = true;
+            }
+        }
+        if (!handled && parsed.resultRecords && parsed.resultRecords.resultClass == "error") {
+            this.log("stderr", <string>parsed.result("msg"));
+        }
+        if (parsed.outOfBandRecord) {
+            parsed.outOfBandRecord.forEach(async record => {
+                if (record.isStream) {
+                    this.log(record.type, record.content);
+                } else {
+                    if (record.type == "exec") {
+                        this.emit("exec-async-output", parsed);
+                        // 002 - stepOver in routines with "perform"
+                        subroutine = this.map.hasLineSubroutine(parsed.record('frame.fullname'), parseInt(parsed.record('frame.line')));
+                        // 002
+                        if (record.asyncClass == "running") {
+                            this.emit("running", parsed);
+                        } else if (record.asyncClass == "stopped") {
+                            const reason = <string>parsed.record("reason");
+                            log.debug("stop:", reason);
+                            if (reason == "breakpoint-hit") {
+                                if (!this.map.hasLineCobol(parsed.record('frame.fullname'), parseInt(parsed.record('frame.line')))) {
+                                    if (this.lastStepCommand == this.continue && parsed.record("disp") == "del")
+                                        void this.lastStepCommand();
+                                    else
+                                        this.stepOver(); // 002 - stepInto/stepOut in routines with "perform" 
+                                } else {
+                                    this.emit("step-end", parsed);
+                                }
+                            } else if (reason == "location-reached") { // 002 - stepOver in routines with "perform" 
+                                if (!this.map.hasLineCobol(parsed.record('frame.fullname'), parseInt(parsed.record('frame.line')))) {
+                                    this.stepOver();
+                                } else {
+                                    this.emit("step-end", parsed);
+                                }
+                            } else if (reason == "end-stepping-range") {
+                                if (!this.map.hasLineCobol(<string>parsed.record('frame.fullname'), parseInt(<string>parsed.record('frame.line')))) {
+                                    void this.lastStepCommand().then();
+                                } else {
+                                    this.emit("step-end", parsed);
+                                }
+                            } else if (reason == "function-finished") {
+                                if (!this.map.hasLineCobol(<string>parsed.record('frame.fullname'), parseInt(<string>parsed.record('frame.line')))) {
+                                    void this.lastStepCommand();
+                                } else {
+                                    this.emit("step-out-end", parsed);
+                                }
+                            } else if (reason == "signal-received") {
+                                this.emit("signal-stop", parsed);
+                            } else if (reason == "exited-normally") {
+                                this.emit("exited-normally", parsed);
+                            } else if (reason == "exited") { // exit with error code != 0
+                                log.info("Program exited with code " + <string>parsed.record("exit-code"));
+                                this.emit("quit", parsed);
+                            } else if (reason == "solib-event") {
+                                this.onSolibEvent(parsed);
+                                this.resume();
+                            } else {
+                                if (!this.map.hasLineCobol(<string>parsed.record('frame.fullname'), parseInt(<string>parsed.record('frame.line')))) {
+                                    void this.continue();
+                                } else {
+                                    log.error("Not implemented stop reason (assuming exception):", reason);
+                                    this.emit("stopped", parsed);
+                                }
+                            }
+                        } else {
+                            log.debug(() => JSON.stringify(parsed));
+                        }
+                    } else if (record.type == "notify") {
+                        if (record.asyncClass == "thread-created") {
+                            this.emit("thread-created", parsed);
+                        } else if (record.asyncClass == "thread-exited") {
+                            this.emit("thread-exited", parsed);
+                        } else if (record.asyncClass == "library-loaded") {
+                            // Possibly unreachable if `stop-on-solib-events` is on; still handle in case.
+                            let libname = record.output.find((e) => e[0] == "target-name")?.[1];
+                            if (this.map.addLib(libname)) {
+                                log.debug(() => `Added library to map: ${libname}`);
+                                log.debug(() => this.map.toString("updated"));
+                                this.reloadBreakPoints();
+                            }
+                        } else if (record.asyncClass == "library-unloaded") {
+                            // Ditto: possibly unreachable if `stop-on-solib-events` is on; still handle in case.
+                            let libname = record.output.find((e) => e[0] == "target-name")?.[1];
+                            if (this.map.remLib(libname)) {
+                                log.debug(() => this.map.toString("updated"));
+                                this.reloadBreakPoints();
+                            }
+                        } else {
+                            log.debug(() => JSON.stringify(parsed));
+                        }
+                    }
+                }
+            });
+            handled = true;
+        }
+        if (parsed.token == undefined && parsed.resultRecords == undefined && parsed.outOfBandRecord.length == 0) {
+            handled = true;
+        }
+        if (!handled) {
+            log.error("Unhandled: " + JSON.stringify(parsed));
+        }
     }
 
     private onSolibEvent(node: MINode): void {
