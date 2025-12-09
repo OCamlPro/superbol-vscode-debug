@@ -26,6 +26,9 @@ suite("GDB output", () => {
 	test("++", () => {
 		assert.equal(true, couldBeOutput('++'));
 	});
+	test("+0000", () => {
+		assert.equal(true, couldBeOutput('+0000'));
+	});
 	test("GDB done", () => {
 		assert.equal(false, couldBeOutput('2^done'));
 	});
