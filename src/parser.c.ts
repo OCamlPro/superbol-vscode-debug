@@ -30,8 +30,6 @@ const subroutineRegex = /\sPerform\s/i;
 const frame_ptrFindRegex = /frame\_ptr\-\-\;/;
 const fixOlderFormat = /cob\_trace\_stmt/;
 
-globalThis.varOccurs = [];
-
 function cobEncodeInvalidChars (s: string): string {
     // TODO: properly mimick `libcob:cob_encode_invalid_chars`
     // Meaning: Also replace any character in /[^a-zA-Z0-9-]/ into "_XX", where
@@ -58,6 +56,9 @@ function lookupLineInCobolFile(fileCobol: string, lineCobol: number) : string | 
     }
     return undefined;
 }
+
+const globalNamespace = "<global>"
+const globalNamespacePrefix = `${globalNamespace}.`
 
 export class Line {
     endPerformLine: number;   // 002 - stepOver in routines with "perform"
@@ -259,27 +260,38 @@ export class SourceMap {
                 if (match[3].startsWith("[")) {
                     size = parseInt(match[3].substring(1, match[3].length - 1));
                 }
-                const dataStorage = new DebuggerVariable(match[4], match[2], functionName, rootFileC,
-                     new Attribute(null, VariableType[match[1]], 0, 0), size);
-                this.dataStorages.set(`${functionName}.${dataStorage.cName}`, dataStorage);
-                this.variablesByC.set(`${functionName}.${dataStorage.cName}`, dataStorage);
-                this.variablesByCobol.set(`${functionName}.${dataStorage.cobolName.toUpperCase()}`, dataStorage);
+                const global = functionName === undefined;
+                const namespace = functionName ?? globalNamespace;
+                const cName = global ? `'${fileC}'::${match[2]}` : match[2];
+                const cobolName = match[4];
+                const cobolNAME = cobolName.toUpperCase();
+                const dataStorage = new DebuggerVariable(cobolName, cName, namespace, rootFileC, false, new Attribute(null, VariableType[match[1]], 0, 0), size);
+                this.dataStorages.set(`${namespace}.${dataStorage.cName}`, dataStorage);
+                this.variablesByC.set(`${namespace}.${dataStorage.cName}`, dataStorage);
+                const fullCobolName = global ? `'${fileC}'.${cobolNAME}` : cobolNAME;
+                this.variablesByCobol.set(`${namespace}.${fullCobolName}`, dataStorage);
             }
             match = fieldRegex.exec(line);
             if (match) {
+                const global = functionName === undefined;
+                const namespace = functionName ?? globalNamespace;
+                const cName = global ? `'${fileC}'::${match[1]}` : match[1];
+                const cRecord = global ? `'${fileC}'::${match[3]}` : match[3];
                 const attribute = this.attributes.get(`${cleanedFile}.${match[4]}`);
-                const dataStorage = this.dataStorages.get(`${functionName}.${match[3]}`);
-                const field = new DebuggerVariable(match[5], match[1], functionName, rootFileC,
-                    attribute, parseInt(match[2]));
+                const dataStorage = this.dataStorages.get(`${namespace}.${cRecord}`);
+                const cobolName = match[5];
+                const field = new DebuggerVariable(cobolName, cName, namespace, rootFileC, true, attribute, parseInt(match[2]));
 
-                this.variablesByC.set(`${functionName}.${field.cName}`, field);
+                this.variablesByC.set(`${namespace}.${field.cName}`, field);
 
+                let storageKey = namespace;
                 if (dataStorage) {
                     dataStorage.addChild(field);
-                    this.variablesByCobol.set(`${functionName}.${dataStorage.cobolName.toUpperCase()}.${field.cobolName.toUpperCase()}`, field);
-                } else {
-                    this.variablesByCobol.set(`${functionName}.${field.cobolName.toUpperCase()}`, field);
+                    const cobolNAME = dataStorage.cobolName.toUpperCase();
+                    const fullCobolStorage = global ? `'${fileC}'.${cobolNAME}` : cobolNAME;
+                    storageKey = `${namespace}.${fullCobolStorage}`;
                 }
+                this.variablesByCobol.set(`${storageKey}.${field.cobolName.toUpperCase()}`, field);
             }
             match = fileIncludeRegex.exec(line);
             if (match) {
@@ -332,6 +344,25 @@ export class SourceMap {
         return null;
     }
 
+    public findGlobalByC(cName: string): DebuggerVariable {
+        for (const key of this.variablesByC.keys()) {
+            if (key.startsWith(globalNamespacePrefix) && key.endsWith(`.${cName}`)) {
+                return this.variablesByC.get(key);
+            }
+        }
+        return null;
+    }
+
+    public globalCVariables() {
+        return Array.from(this.variablesByC.entries())
+                    .filter(([k,_]) => k.startsWith(globalNamespacePrefix))
+                    .map(([_,v]) => v);
+    }
+
+    public getGlobalByC(fileC: string, varC: string): DebuggerVariable {
+        return this.getVariableByC(`${globalNamespacePrefix}'${fileC}'::${varC}`);
+    }
+
     public getVariableByC(varC: string): DebuggerVariable {
         if (this.variablesByC.has(varC)) {
             return this.variablesByC.get(varC);
@@ -342,6 +373,18 @@ export class SourceMap {
     public findVariableByCobol(functionName: string, name: string): DebuggerVariable {
         for (const key of this.variablesByCobol.keys()) {
             if (key.startsWith(`${functionName}.`) && key.endsWith(`.${name.toUpperCase()}`)) {
+                return this.variablesByCobol.get(key);
+            }
+        }
+        return null;
+    }
+
+    public findGlobalByCobol(name: string, cFile: string = undefined): DebuggerVariable {
+        const prefix = cFile === undefined
+                     ? globalNamespacePrefix
+                     : `${globalNamespacePrefix}'${cFile}'.`;
+        for (const key of this.variablesByCobol.keys()) {
+            if (key.startsWith(prefix) && key.endsWith(`.${name.toUpperCase()}`)) {
                 return this.variablesByCobol.get(key);
             }
         }

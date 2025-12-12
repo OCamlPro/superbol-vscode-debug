@@ -132,7 +132,6 @@ suite("C code parse", () => {
 		const cDirs = nativePath.resolve(srcDirs, 'c');
 		const cblDirs = nativePath.resolve(srcDirs, 'cbl');
 		const parsed = new SourceMap(cwd, ['subsubsample.cbl'], [cDirs, cblDirs]);
-		console.log (parsed.toString());
 
 		assert.equal(1, parsed.getLinesCount());
 		assert.equal(3, parsed.getVariablesCount());
@@ -143,5 +142,32 @@ suite("C code parse", () => {
 		const alnumGroup_ = parsed.findVariableByC('subsubsample_', alnumGroup.cName);
 		assert.equal(alnumGroup_.cobolName, alnumGroup.cobolName);
 		assert.equal(alnumGroup_.rootFileC, alnumGroup.rootFileC);
+	});
+	test("Globals", () => {
+		const parsed = new SourceMap(cwd, ['globals.cbl']);
+		assert.equal(9, parsed.getLinesCount());
+		assert.equal(11, parsed.getVariablesCount());
+		console.log(parsed.toString());
+		
+		const fooVar = parsed.findGlobalByCobol('FOO');
+		assert.ok(fooVar.cobolName.endsWith('FOO'));
+		assert.ok(parsed.findGlobalByC(fooVar.cName).cobolName.endsWith('FOO'));
+		const barVar = parsed.findGlobalByCobol('BAR');
+		assert.equal(4, barVar.size);
+		const bar1Var = parsed.findGlobalByCobol('BAR.BAR-2');
+		assert.equal(3, bar1Var.size);
+		assert.equal('alphanumeric', bar1Var.displayableType);
+
+		parsed.addLib('globals2.so');
+		assert.equal(12, parsed.getLinesCount());
+		assert.equal(14, parsed.getVariablesCount());
+
+		const fooVar_ = parsed.findGlobalByCobol('FOO');
+		assert.ok(parsed.findGlobalByC(fooVar_.cName).cobolName.endsWith('FOO'));
+		assert.notEqual(parsed.findGlobalByCobol('FOO', nativePath.join(cwd, 'globals.c.h')),
+						parsed.findGlobalByCobol('FOO', nativePath.join(cwd, 'globals2.c.h')));
+		assert.equal(parsed.findGlobalByCobol('FOO', nativePath.join(cwd, 'globals2.c.h')),
+					 parsed.findGlobalByCobol('foo', nativePath.join(cwd, 'globals2.c.h')));
+		assert.ok(parsed.findGlobalByCobol('BAR-2', nativePath.join(cwd, 'globals.c.h')));
 	});
 });
