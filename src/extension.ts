@@ -1,7 +1,6 @@
 import * as vscode from "vscode";
 import {GDBDebugSession} from "./gdb";
 import {CoverageStatus} from './coverage';
-import {DebuggerSettings} from "./settings";
 import { EvaluatableExpressionProvider, TextDocument, Position, EvaluatableExpression, ProviderResult, window, Range } from "vscode";
 
 /** Max column index to retrieve line content */
