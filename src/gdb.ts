@@ -45,6 +45,7 @@ export interface LaunchRequestArguments extends DebugProtocol.LaunchRequestArgum
     coverage: boolean;
     gdbtty: boolean;
     useCobcrun: boolean;
+    cobcrunPath: string | null;
     sourceDirs: string[];
 }
 
@@ -58,6 +59,8 @@ export interface AttachRequestArguments extends DebugProtocol.AttachRequestArgum
     verbose: boolean;
     pid: string;
     remoteDebugger: string;
+    useCobcrun: boolean;
+    cobcrunPath: string | null;
     sourceDirs: string[];
 }
 
@@ -97,8 +100,9 @@ export class GDBDebugSession extends DebugSession {
         this.showCoverage = args.coverage;
         this.started = false;
         this.attached = false;
+        const cobcrunPath = args.cobcrunPath ?? settings.cobcrunPath;
 
-        this.miDebugger = new MI2(settings.gdbPath, args.gdbargs, args.env, args.noDebug, args.gdbtty, settings.cobcrunPath, args.useCobcrun, args.sourceDirs);
+        this.miDebugger = new MI2(settings.gdbPath, args.gdbargs, args.env, args.noDebug, args.gdbtty, cobcrunPath, args.useCobcrun, args.sourceDirs);
         this.miDebugger.on("launcherror", (err: Error) => this.launchError(err));
         this.miDebugger.on("quit", () => this.quitEvent());
         this.miDebugger.on("exited-normally", () => this.quitEvent());
@@ -152,8 +156,9 @@ export class GDBDebugSession extends DebugSession {
         this.showCoverage = false;
         this.attached = true;
         this.started = false;
+        const cobcrunPath = args.cobcrunPath ?? settings.cobcrunPath;
 
-        this.miDebugger = new MI2(settings.gdbPath, args.gdbargs, args.env, false, false, "", false, args.sourceDirs);
+        this.miDebugger = new MI2(settings.gdbPath, args.gdbargs, args.env, false, false, cobcrunPath, args.useCobcrun, args.sourceDirs);
         this.miDebugger.on("launcherror", (err: Error) => this.launchError(err));
         this.miDebugger.on("quit", () => this.quitEvent());
         this.miDebugger.on("exited-normally", () => this.quitEvent());

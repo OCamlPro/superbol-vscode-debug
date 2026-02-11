@@ -24,6 +24,10 @@ export function escape(str: string) {
     return str.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
 }
 
+function removePathExtension(f: string) : string {
+    return path.basename(f, path.extname(f));
+}
+
 export function couldBeOutput(line: string) {
     return !nonOutput.exec(line);
 }
@@ -121,13 +125,6 @@ export class MI2 extends EventEmitter implements IDebugger {
 
                 log.debug(() => this.map.toString("created"));
 
-                target = path.resolve(cwd, path.basename(target));
-                target = target.split('.').slice(0, -1).join('.');
-                // FIXME: the following should prefix "cobcrun.exe" if in "module mode", see #13
-                if (process.platform === "win32") {
-                    target = target + '.exe';
-                }
-
                 this.process = ChildProcess.spawn(this.gdbpath, this.gdbArgs, { cwd: cwd, env: this.procEnv });
                 this.process.stdout.on("data", (data: string) => this.stdout(data));
                 this.process.stderr.on("data", (data: string) => this.stderr(data));
@@ -141,9 +138,13 @@ export class MI2 extends EventEmitter implements IDebugger {
         });
     }
 
-    private targetExecutable(target: string, cwd: string) {
+    private targetCobExecutable(target: string, cwd: string) {
+        target = removePathExtension(target);
         if (!path.isAbsolute(target)) {
             target = path.join(cwd, target);
+        }
+        if (process.platform === "win32") {
+            target = target + '.exe';
         }
         return escape(target);
     }
@@ -151,9 +152,9 @@ export class MI2 extends EventEmitter implements IDebugger {
     private launchCommands(target: string, targetargs: string, cwd: string) {
         let targetExec = this.useCobcrun
             ? this.cobcrunPath
-            : this.targetExecutable(target, cwd);
+            : this.targetCobExecutable(target, cwd);
         targetargs = this.useCobcrun
-            ? `${path.basename(target, path.extname(target))} ${targetargs}`
+            ? `${removePathExtension(target)} ${targetargs}`
             : targetargs;
         return this.commonCommands(cwd).concat([
             this.sendCommand("gdb-set args " + targetargs),
@@ -164,7 +165,7 @@ export class MI2 extends EventEmitter implements IDebugger {
     private attachCommands(target: string, cwd: string) {
         let targetExec = this.useCobcrun
             ? this.cobcrunPath
-            : this.targetExecutable(target, cwd);
+            : this.targetCobExecutable(target, cwd);
         return this.commonCommands(cwd).concat([
             this.sendCommand("file-exec-and-symbols \"" + targetExec + "\""),
         ]);
@@ -421,7 +422,7 @@ export class MI2 extends EventEmitter implements IDebugger {
                 clearTimeout(to);
             });
         }
-        void this.sendCommand("gdb-exit");
+        void this.sendCommand("gdb-exit", failure_handling.Suppress);
     }
 
     detach() {
@@ -434,7 +435,7 @@ export class MI2 extends EventEmitter implements IDebugger {
                 clearTimeout(to);
             });
         }
-        void this.sendCommand("target-detach");
+        void this.sendCommand("target-detach", failure_handling.Suppress);
     }
 
     interrupt(): Thenable<boolean> {
