@@ -173,7 +173,7 @@ export class GDBDebugSession extends DebugSession {
         this.debugReady = false;
         // Run in the target executables' directory, unless specificed.
         let cwd = args.cwd ?? path.dirname (args.target);
-        this.miDebugger.attach(cwd, args.target, args.arguments, args.group).then(() => {
+        this.miDebugger.attach(cwd, args.target, args.group).then(() => {
             setTimeout(() => {
                 this.miDebugger.emit("ui-break-done");
             }, 50);

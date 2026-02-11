@@ -147,7 +147,6 @@ suite("C code parse", () => {
 		const parsed = new SourceMap(cwd, ['globals.cbl']);
 		assert.equal(9, parsed.getLinesCount());
 		assert.equal(11, parsed.getVariablesCount());
-		console.log(parsed.toString());
 		
 		const fooVar = parsed.findGlobalByCobol('FOO');
 		assert.ok(fooVar.cobolName.endsWith('FOO'));

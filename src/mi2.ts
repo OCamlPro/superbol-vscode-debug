@@ -90,7 +90,7 @@ export class MI2 extends EventEmitter implements IDebugger {
                 this.process.stderr.on("data", (data: string) => this.stderr(data));
                 this.process.on("exit", (() => { this.emit("quit"); }));
                 this.process.on("error", (err) => { this.emit("launcherror", err); });
-                const promises = this.initCommands(target, targetargs, cwd, this.useCobcrun);
+                const promises = this.launchCommands(target, targetargs, cwd);
                 // 001-gdbtty - additional parameters for gdb
                 for (let item of gdbttyParameters)
                     promises.push(this.sendCommand("gdb-set " + item));
@@ -103,7 +103,7 @@ export class MI2 extends EventEmitter implements IDebugger {
         });
     }
 
-    attach(cwd: string, target: string, targetargs: string, group: string[]): Thenable<unknown> {
+    attach(cwd: string, target: string, group: string[]): Thenable<unknown> {
         if (!path.isAbsolute(target)) {
             target = path.join(cwd, target);
         }
@@ -133,8 +133,7 @@ export class MI2 extends EventEmitter implements IDebugger {
                 this.process.stderr.on("data", (data: string) => this.stderr(data));
                 this.process.on("exit", () => { this.emit("quit"); });
                 this.process.on("error", (err) => { this.emit("launcherror", err); });
-                const promises = this.initCommands(target, targetargs, cwd, false);
-                Promise.all(promises).then(() => {
+                Promise.all(this.attachCommands(target, cwd)).then(() => {
                     this.emit("debug-ready");
                     resolve(true);
                 }, reject);
@@ -142,32 +141,44 @@ export class MI2 extends EventEmitter implements IDebugger {
         });
     }
 
-    protected initCommands(target: string, targetargs: string, cwd: string, useCobcrun: boolean) {
+    private targetExecutable(target: string, cwd: string) {
         if (!path.isAbsolute(target)) {
             target = path.join(cwd, target);
         }
-        if (process.platform === "win32") {
-            cwd = path.dirname(target);
-        }
+        return escape(target);
+    }
 
-        let targetExec = escape(target);
-        if (useCobcrun) {
-            targetargs = `-m ${targetExec} ${targetargs}`
-            targetExec = this.cobcrunPath;
-        }
+    private launchCommands(target: string, targetargs: string, cwd: string) {
+        let targetExec = this.useCobcrun
+            ? this.cobcrunPath
+            : this.targetExecutable(target, cwd);
+        targetargs = this.useCobcrun
+            ? `${path.basename(target, path.extname(target))} ${targetargs}`
+            : targetargs;
+        return this.commonCommands(cwd).concat([
+            this.sendCommand("gdb-set args " + targetargs),
+            this.sendCommand("file-exec-and-symbols \"" + targetExec + "\""),
+        ]);
+    }
 
-        const cmds = [
+    private attachCommands(target: string, cwd: string) {
+        let targetExec = this.useCobcrun
+            ? this.cobcrunPath
+            : this.targetExecutable(target, cwd);
+        return this.commonCommands(cwd).concat([
+            this.sendCommand("file-exec-and-symbols \"" + targetExec + "\""),
+        ]);
+    }
+
+    private commonCommands(cwd: string) {
+        return [
             this.sendCommand("gdb-set mi-async on"),
             this.sendCommand("gdb-set print repeats 1000"),
-            this.sendCommand("gdb-set args " + targetargs),
             this.sendCommand("gdb-set charset UTF-8"),
             this.sendCommand("environment-directory \"" + escape(cwd) + "\""),
-            this.sendCommand("file-exec-and-symbols \"" + targetExec + "\""),
             this.sendCommand("gdb-set stop-on-solib-events 1"),
-            this.sendCommand("gdb-set directories \"" + this.map.sourceDirs.join('" "') + "\"")
+            this.sendCommand("gdb-set directories \"" + this.map.sourceDirs.join('" "') + "\""),
         ];
-
-        return cmds;
     }
 
     stdout(data: string) {
@@ -260,7 +271,7 @@ export class MI2 extends EventEmitter implements IDebugger {
                             this.emit("running", parsed);
                         } else if (record.asyncClass == "stopped") {
                             const reason = <string>parsed.record("reason");
-                            log.debug("stop:", reason);
+                            log.debug("stop:", reason ?? "unknon");
                             if (reason == "breakpoint-hit") {
                                 if (!this.map.hasLineCobol(parsed.record('frame.fullname'), parseInt(parsed.record('frame.line')))) {
                                     if (this.lastStepCommand == this.continue && parsed.record("disp") == "del")
@@ -784,7 +795,10 @@ export class MI2 extends EventEmitter implements IDebugger {
                                             failure_handling.Silence);
         if (resp?.resultRecords.resultClass !== "done")
             return [];
-        return (<any[]>resp.result("symbols.debug")).map(MI2Decoder.decodeFileSymbols);
+        const debugSymbols = <any[]>resp.result("symbols.debug");
+        if (debugSymbols === undefined)
+            return [];
+        return debugSymbols.map(MI2Decoder.decodeFileSymbols);
     }
 
     async evalSymbol(s: LocalizedSymbol): Promise<DebuggerVariable> {

@@ -15,7 +15,7 @@
 * Fix first line of subprograms in source mapping [PR #22](https://github.com/ocamlpro/superbol-vscode-debug/pull/22)
 * Fix detection of attach target that is given as a PID [PR #21](https://github.com/ocamlpro/superbol-vscode-debug/pull/21)
 * Fix handling of nested subprograms [PR #18](https://github.com/ocamlpro/superbol-vscode-debug/pull/18)
-* Add support for dynamically loaded sub-modules (e.g, via CALL + literal) [PR #17](https://github.com/ocamlpro/superbol-vscode-debug/pull/17)
+* Add support for dynamically loaded sub-modules (e.g, via CALL + literal) [PR #17](https://github.com/ocamlpro/superbol-vscode-debug/pull/17) [PR #41](https://github.com/ocamlpro/superbol-vscode-debug/pull/41)
 * Enable launching a debug session outside a workspace [PR #16](https://github.com/ocamlpro/superbol-vscode-debug/pull/16)
 * Set `gdbtty` to `false` by default [PR #15](https://github.com/ocamlpro/superbol-vscode-debug/pull/15)
 * Fix handling of programs with dashes `-` in their name [PR #14](https://github.com/ocamlpro/superbol-vscode-debug/pull/14)
