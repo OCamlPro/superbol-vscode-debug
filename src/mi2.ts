@@ -271,7 +271,7 @@ export class MI2 extends EventEmitter implements IDebugger {
                             this.emit("running", parsed);
                         } else if (record.asyncClass == "stopped") {
                             const reason = <string>parsed.record("reason");
-                            log.debug("stop:", reason);
+                            log.debug("stop:", reason ?? "unknon");
                             if (reason == "breakpoint-hit") {
                                 if (!this.map.hasLineCobol(parsed.record('frame.fullname'), parseInt(parsed.record('frame.line')))) {
                                     if (this.lastStepCommand == this.continue && parsed.record("disp") == "del")
@@ -795,7 +795,10 @@ export class MI2 extends EventEmitter implements IDebugger {
                                             failure_handling.Silence);
         if (resp?.resultRecords.resultClass !== "done")
             return [];
-        return (<any[]>resp.result("symbols.debug")).map(MI2Decoder.decodeFileSymbols);
+        const debugSymbols = <any[]>resp.result("symbols.debug");
+        if (debugSymbols === undefined)
+            return [];
+        return debugSymbols.map(MI2Decoder.decodeFileSymbols);
     }
 
     async evalSymbol(s: LocalizedSymbol): Promise<DebuggerVariable> {
