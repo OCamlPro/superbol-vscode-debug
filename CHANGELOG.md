@@ -4,7 +4,7 @@
 * Show global data items in Variables panel [PR #40](https://github.com/ocamlpro/superbol-vscode-debug/pull/40)
 * Fixed a bug that made the extension hang when debugged programs displayed signed numbers [PR #39](https://github.com/ocamlpro/superbol-vscode-debug/pull/39)
 * Show COBOL statements in entries of stackframe summary [PR #38](https://github.com/ocamlpro/superbol-vscode-debug/pull/38)
-* Remove `gdbpath` and `libcobpath` from launch configurations (these are provided in extension settings) [PR #36](https://github.com/ocamlpro/superbol-vscode-debug/pull/36)
+* Remove `gdbpath` and `libcobpath` from launch configurations (these are provided in extension settings) [PR #36](https://github.com/ocamlpro/superbol-vscode-debug/pull/36) [PR #43](https://github.com/ocamlpro/superbol-vscode-debug/pull/43)
 * Fix enforcement of a default `preLaunchTask` that is not available [PR #34](https://github.com/ocamlpro/superbol-vscode-debug/pull/34)
 * Support cases where the COBOL source code and the corresponding C files are in distinct directories [PR #29](https://github.com/ocamlpro/superbol-vscode-debug/pull/29)
 * Remove unneeded fields from auto-generated configurations [PR #27](https://github.com/ocamlpro/superbol-vscode-debug/pull/27) [PR #28](https://github.com/ocamlpro/superbol-vscode-debug/pull/28)

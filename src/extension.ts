@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
+import path from "path";
 import {GDBDebugSession} from "./gdb";
+import {accessors as settings} from './settings';
 import {CoverageStatus} from './coverage';
 import { EvaluatableExpressionProvider, TextDocument, Position, EvaluatableExpression, ProviderResult, window, Range } from "vscode";
 
@@ -69,10 +71,13 @@ class GdbConfigurationProvider implements vscode.DebugConfigurationProvider {
             if (config.group === undefined) {
                 config.group = [];
             }
-            if (config.env === undefined) {
-                config.env = { ["LD_LIBRARY_PATH"]: config.libcobpath };
-            } else {
-                config.env.LD_LIBRARY_PATH = config.libcobpath + ";" + config.env.LD_LIBRARY_PATH;
+            const libcobpath = settings.libcobPath;
+            if (libcobpath != undefined) {
+                if (config.env === undefined) {
+                    config.env = { ["LD_LIBRARY_PATH"]: libcobpath };
+                } else {
+                    config.env.LD_LIBRARY_PATH = libcobpath + path.delimiter + config.env.LD_LIBRARY_PATH;
+                }
             }
             if (config.coverage === undefined) {
                 config.coverage = false;

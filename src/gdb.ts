@@ -18,7 +18,7 @@ import {MINode} from './parser.mi2';
 import * as path from "path";
 import {MI2} from './mi2';
 import {CoverageStatus} from './coverage';
-import {DebuggerSettings} from './settings';
+import {accessors as settings} from './settings';
 import * as log from './log';
 
 const STACK_HANDLES_START = 1000;
@@ -63,8 +63,6 @@ export interface AttachRequestArguments extends DebugProtocol.AttachRequestArgum
     cobcrunPath: string | null;
     sourceDirs: string[];
 }
-
-const settings = new DebuggerSettings();
 
 function initLogLevel(verbose: boolean) {
     if (verbose) {

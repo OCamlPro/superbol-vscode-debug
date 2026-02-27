@@ -27,3 +27,5 @@ export class DebuggerSettings {
     }
 
 }
+
+export const accessors = new DebuggerSettings();
