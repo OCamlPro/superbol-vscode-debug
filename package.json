@@ -1,6 +1,6 @@
 {
-	"name": "gnucobol-debug",
-	"displayName": "COBOL debugger",
+	"name": "superbol-vscode-debug",
+	"displayName": "SuperBOL Debugger for GnuCOBOL",
 	"description": "Debug or execute COBOL code. No mainframe required.",
 	"keywords": [
 		"cobol",
@@ -10,24 +10,34 @@
 		"code coverage"
 	],
 	"version": "3.32.0",
-	"publisher": "OlegKunitsyn",
+	"publisher": "OCamlPro SAS",
+	"contributors": [
+		{
+			"name": "Emilien Lemaire",
+			"email": "emilien.lemaire@ocamlpro.com"
+		},
+		{
+			"name": "Olegs Kunicins",
+			"email": "olegs.kunicins@gmail.com"
+		}
+	],
 	"license": "GPL-3.0",
 	"icon": "icon.png",
 	"engines": {
-		"vscode": "^1.44.0"
+		"vscode": "^1.66.0",
+		"node": ">=20"
 	},
 	"main": "./out/src/extension",
 	"activationEvents": [
 		"onDebugResolve",
-		"onCommand:gnucobol-debug.dockerStart",
-		"onCommand:gnucobol-debug.dockerStop"
+		"onDebugInitialConfigurations"
 	],
 	"categories": [
 		"Debuggers"
 	],
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/OlegKunitsyn/gnucobol-debug.git"
+		"url": "https://github.com/OCamlPro/superbol-vscode-debug.git"
 	},
 	"capabilities": {
 		"untrustedWorkspaces": {
@@ -35,49 +45,39 @@
 		}
 	},
 	"contributes": {
-		"commands": [
-			{
-				"command": "gnucobol-debug.dockerStart",
-				"title": "GnuCOBOL Docker: start"
-			},
-			{
-				"command": "gnucobol-debug.dockerStop",
-				"title": "GnuCOBOL Docker: stop"
-			}
-		],
 		"breakpoints": [
 			{
 				"language": "cobol"
-			},
+			}
+		],
+		"languages": [
 			{
-				"language": "COBOL"
-			},
-			{
-				"language": "ACUCOBOL"
-			},
-			{
-				"language": "OpenCOBOL"
-			},
-			{
-				"language": "GnuCOBOL"
-			},
-			{
-				"language": "entcobol"
+				"id": "cobol",
+				"aliases": [
+					"COBOL"
+				],
+				"filenamePatterns": [
+					"*.[cC]{ob,OB,bl,BL,py,PY,bx,BX,bsql}"
+				]
 			}
 		],
 		"debuggers": [
 			{
-				"type": "gdb",
+				"type": "superbol-gdb",
+				"languages": [
+					"cobol",
+					"COBOL"
+				],
 				"program": "./out/src/gdb.js",
 				"runtime": "node",
-				"label": "COBOL debugger",
+				"label": "SuperBOL Debugger for GnuCOBOL",
 				"configurationAttributes": {
 					"launch": {
 						"required": [],
 						"properties": {
 							"target": {
 								"type": "string",
-								"description": "Path to executable",
+								"description": "Path to the executable, or name of the module to launch",
 								"default": "${file}"
 							},
 							"arguments": {
@@ -88,30 +88,7 @@
 							"cwd": {
 								"type": "string",
 								"description": "Path to project",
-								"default": "${workspaceRoot}"
-							},
-							"gdbpath": {
-								"type": "string",
-								"description": "Path to gdb",
-								"default": "gdb"
-							},
-							"docker": {
-								"type": "string",
-								"description": "Docker image",
-								"default": "olegkunitsyn/gnucobol:3.1-dev"
-							},
-							"cobcpath": {
-								"type": "string",
-								"description": "Path to cobc",
-								"default": "cobc"
-							},
-							"cobcargs": {
-								"type": "array",
-								"description": "Extra arguments for cobc",
-								"default": [
-									"-free",
-									"-x"
-								]
+								"default": "${workspaceFolder}"
 							},
 							"group": {
 								"type": "array",
@@ -126,11 +103,11 @@
 							"coverage": {
 								"type": "boolean",
 								"description": "Enable code coverage",
-								"default": true
+								"default": false
 							},
 							"verbose": {
 								"type": "boolean",
-								"description": "Debug GDB",
+								"description": "Debug interactions with gdb",
 								"default": false
 							},
 							"gdbtty": {
@@ -144,8 +121,27 @@
 									true,
 									false,
 									"vscode",
+									"xterm",
+									"gnome-terminal",
+									"xfce4-terminal",
+									"konsole",
 									"external"
 								]
+							},
+							"useCobcrun": {
+								"type": "boolean",
+								"markdownDescription": "Debug the target as a module of `cobcrun`",
+								"default": false
+							},
+							"cobcrunPath": {
+								"type": "string",
+								"markdownDescription": "Path to the GnuCOBOL runtime (typically `cobcrun`)",
+								"default": null
+							},
+							"sourceDirs": {
+								"type": "array",
+								"markdownDescription": "Where to find the source code, in addition to the current directory.\n\nExample: `[ \"/usr/share/cobol/sources\" ]`",
+								"default": []
 							}
 						}
 					},
@@ -159,31 +155,13 @@
 							},
 							"arguments": {
 								"type": "string",
-								"description": "Extra arguments for executable",
+								"description": "Extra arguments (only used when the program is restarted)",
 								"default": null
 							},
 							"cwd": {
 								"type": "string",
 								"description": "Path to project",
-								"default": "${workspaceRoot}"
-							},
-							"gdbpath": {
-								"type": "string",
-								"description": "Path to gdb",
-								"default": "gdb"
-							},
-							"cobcpath": {
-								"type": "string",
-								"description": "Path to cobc",
-								"default": "cobc"
-							},
-							"cobcargs": {
-								"type": "array",
-								"description": "Extra arguments for cobc",
-								"default": [
-									"-free",
-									"-x"
-								]
+								"default": "${workspaceFolder}"
 							},
 							"group": {
 								"type": "array",
@@ -197,7 +175,7 @@
 							},
 							"verbose": {
 								"type": "boolean",
-								"description": "Debug GDB",
+								"description": "Debug interactions with gdb",
 								"default": false
 							},
 							"pid": {
@@ -209,78 +187,97 @@
 								"type": "string",
 								"description": "GDB Server host:port",
 								"default": null
+							},
+							"useCobcrun": {
+								"type": "boolean",
+								"markdownDescription": "Debug the target as a module of `cobcrun`",
+								"default": false
+							},
+							"cobcrunPath": {
+								"type": "string",
+								"markdownDescription": "Path to the GnuCOBOL runtime (typically `cobcrun`)",
+								"default": null
+							},
+							"sourceDirs": {
+								"type": "array",
+								"markdownDescription": "Where to find the source code, in addition to the current directory.\n\nExample: `[ \"/usr/share/cobol/sources\" ]`",
+								"default": []
 							}
 						}
 					}
 				},
-				"initialConfigurations": [
+				"configurationSnippets": [
 					{
-						"name": "COBOL debugger",
-						"type": "gdb",
-						"request": "launch",
-						"cobcargs": [
-							"-free",
-							"-x"
-						],
-						"coverage": true,
-						"gdbtty": true
+						"label": "SuperBOL: debug launch",
+						"description": "New SuperBOL launch request",
+						"body": {
+							"name": "${2:SuperBOL: debug launch}",
+							"type": "superbol-gdb",
+							"request": "launch",
+							"target": "$${_:{file}}",
+							"arguments": "",
+							"cwd": "$${_:{workspaceRoot}}",
+							"gdbtty": true
+						}
 					},
 					{
-						"name": "COBOL debugger attach local",
-						"type": "gdb",
-						"request": "attach",
-						"cobcargs": [
-							"-free",
-							"-x"
-						],
-						"pid": "${input:pid}"
+						"label": "SuperBOL: debug attach local",
+						"description": "New SuperBOL attach local request",
+						"body": {
+							"name": "${2:SuperBOL: debug attach local}",
+							"type": "superbol-gdb",
+							"request": "attach",
+							"pid": "${3:0}",
+							"target": "$${_:{file}}",
+							"cwd": "$${_:{workspaceRoot}}"
+						}
 					},
 					{
-						"name": "COBOL debugger attach remote",
-						"type": "gdb",
-						"request": "attach",
-						"cobcargs": [
-							"-free",
-							"-x"
-						],
-						"remoteDebugger": "${input:remoteDebugger}"
+						"label": "SuperBOL: debug attach remote",
+						"description": "New SuperBOL attach remote request",
+						"body": {
+							"name": "${2:SuperBOL: debug attach remote}",
+							"type": "superbol-gdb",
+							"request": "attach",
+							"remoteDebugger": "${3:host:port}",
+							"target": "$${_:{file}}",
+							"cwd": "$${_:{workspaceRoot}}"
+						}
 					}
 				]
 			}
 		],
 		"configuration": {
-			"type": "object",
-			"title": "COBOL Debugger",
+			"title": "SuperBOL Debugger",
 			"properties": {
-				"Cobol_Debugger.display_variable_attributes": {
+				"superbol-vscode-debug.displayVariableAttributes": {
 					"type": "boolean",
 					"default": false,
-					"description": "Displaying Data Storages and Fields attributes(e.g. size of Alphanumerics or digits and scale of numerics).",
+					"description": "Displaying Data Storages and Fields attributes (e.g. size of Alphanumerics or digits and scale of numerics).",
 					"scope": "resource"
 				},
-				"Cobol_Debugger.cwd": {
+				"superbol-vscode-debug.gdbPath": {  
 					"type": "string",
-					"default": "${workspaceRoot}",
-					"description": "Path to project",
-					"scope": "application"
+        				"title": "GNU Debugger Executable",
+          				"markdownDescription": "Path to the GNU debugger executable.\n<!-- COBOL -->",
+          				"default": "gdb",
+         				"scope": "machine-overridable"
+          			},
+				"superbol-vscode-debug.cobcrunPath": {
+					"title": "GnuCOBOL module loader",
+					"markdownDescription": "Path to `cobcrun`, the GnuCOBOL module loader.\n<!-- COBOL -->",
+					"type": "string",
+					"default": "cobcrun",
+					"scope": "machine-overridable"
 				},
-				"Cobol_Debugger.target": {
-					"type": "string",
-					"description": "Path to source code",
-					"default": "${file}",
-					"scope": "application"
-				},
-				"Cobol_Debugger.gdbpath": {
-					"type": "string",
-					"description": "Path to gdb",
-					"default": "gdb",
-					"scope": "application"
-				},
-				"Cobol_Debugger.cobcpath": {
-					"type": "string",
-					"description": "Path to cobc",
-					"default": "cobc",
-					"scope": "application"
+				"superbol-vscode-debug.libcobPath": {
+					"title": "GnuCOBOL Runtime Library",
+					"type": [
+						"string",
+						"null"
+					],
+					"description": "Path to the GnuCOBOL runtime library file.",
+					"scope": "machine-overridable"
 				}
 			}
 		}
@@ -289,26 +286,36 @@
 		"prepare": "tsc -p ./",
 		"compile": "tsc -p ./",
 		"watch": "tsc -w -p ./",
-		"test": "mocha -u tdd ./out/test/",
+		"test": "npm run compile && vscode-test",
 		"lint": "eslint -c .eslintrc.js --ext .ts ./"
 	},
 	"devDependencies": {
-		"@types/mocha": "^10.0.1",
+		"@types/expect": "^1.20.4",
+		"@types/mocha": "^10.0.10",
 		"@types/node": "^20.6.3",
-		"@types/vscode": "^1.44.0",
+		"@types/vscode": "^1.64.0",
 		"@typescript-eslint/eslint-plugin": "^6.7.2",
 		"@typescript-eslint/parser": "^6.7.2",
-		"@vscode/test-electron": "^2.3.4",
+		"@vscode/debugadapter-testsupport": "^1.51.0",
+		"@vscode/test-cli": "^0.0.12",
+		"@vscode/test-electron": "^2.5.2",
 		"eslint": "^8.50.0",
-		"mocha": "^10.2.0",
-		"typescript": "^5.2.2",
-		"@vscode/debugadapter-testsupport": "^1.51.0"
+		"eslint_d": "^12.2.1",
+		"mocha": "^10.8.2",
+		"ts-mocha": "^11.1.0",
+		"ts-node": "^10.9.2",
+		"tsconfig-paths": "^4.2.0",
+		"typescript": "^5.2.2"
 	},
 	"dependencies": {
-		"gcov-parse": "^1.1.2",
-		"n-readlines": "^1.0.1",
-		"package_name": "^1.0.0",
+		"@vscode/debugadapter": "^1.51.0",
 		"@vscode/debugprotocol": "^1.51.0",
-		"@vscode/debugadapter": "^1.51.0"
+		"n-readlines": "^1.0.1"
+	},
+	"devEngines": {
+		"packageManager": {
+			"name": "npm",
+			"onFail": "error"
+		}
 	}
 }

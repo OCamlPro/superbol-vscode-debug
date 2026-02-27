@@ -1,3 +1,26 @@
+## Next
+
+* Enable customization of the COBOL runtime [PR #42](https://github.com/ocamlpro/superbol-vscode-debug/pull/42)
+* Show global data items in Variables panel [PR #40](https://github.com/ocamlpro/superbol-vscode-debug/pull/40)
+* Fixed a bug that made the extension hang when debugged programs displayed signed numbers [PR #39](https://github.com/ocamlpro/superbol-vscode-debug/pull/39)
+* Show COBOL statements in entries of stackframe summary [PR #38](https://github.com/ocamlpro/superbol-vscode-debug/pull/38)
+* Remove `gdbpath` and `libcobpath` from launch configurations (these are provided in extension settings) [PR #36](https://github.com/ocamlpro/superbol-vscode-debug/pull/36) [PR #43](https://github.com/ocamlpro/superbol-vscode-debug/pull/43)
+* Fix enforcement of a default `preLaunchTask` that is not available [PR #34](https://github.com/ocamlpro/superbol-vscode-debug/pull/34)
+* Support cases where the COBOL source code and the corresponding C files are in distinct directories [PR #29](https://github.com/ocamlpro/superbol-vscode-debug/pull/29)
+* Remove unneeded fields from auto-generated configurations [PR #27](https://github.com/ocamlpro/superbol-vscode-debug/pull/27) [PR #28](https://github.com/ocamlpro/superbol-vscode-debug/pull/28)
+* Fix evaluation of expressions with binary-typed fields [PR #26](https://github.com/ocamlpro/superbol-vscode-debug/pull/26)
+* Silence some errors due to requests that are handled while the program is running [PR #25](https://github.com/ocamlpro/superbol-vscode-debug/pull/25)
+* Enable specification of directories where COBOL and C source files are to be found (option `sourceDirs`) [PR #20](https://github.com/ocamlpro/superbol-vscode-debug/pull/20)
+* Enable use of `cobcrun` module loaded [PR #19](https://github.com/ocamlpro/superbol-vscode-debug/pull/19)
+* Avoid forcing a prelaunch task on attach mode [PR #23](https://github.com/ocamlpro/superbol-vscode-debug/pull/23)
+* Fix first line of subprograms in source mapping [PR #22](https://github.com/ocamlpro/superbol-vscode-debug/pull/22)
+* Fix detection of attach target that is given as a PID [PR #21](https://github.com/ocamlpro/superbol-vscode-debug/pull/21)
+* Fix handling of nested subprograms [PR #18](https://github.com/ocamlpro/superbol-vscode-debug/pull/18)
+* Add support for dynamically loaded sub-modules (e.g, via CALL + literal) [PR #17](https://github.com/ocamlpro/superbol-vscode-debug/pull/17) [PR #41](https://github.com/ocamlpro/superbol-vscode-debug/pull/41)
+* Enable launching a debug session outside a workspace [PR #16](https://github.com/ocamlpro/superbol-vscode-debug/pull/16)
+* Set `gdbtty` to `false` by default [PR #15](https://github.com/ocamlpro/superbol-vscode-debug/pull/15)
+* Fix handling of programs with dashes `-` in their name [PR #14](https://github.com/ocamlpro/superbol-vscode-debug/pull/14)
+
 ## 3.32.0
 * Updates [Issue #138](https://github.com/OlegKunitsyn/gnucobol-debug/issues/138) by MARCOS MARTINS DUMA
   * Migrate from TSLint to ESLint

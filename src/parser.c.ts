@@ -1,26 +1,21 @@
-import * as readline from "n-readlines";
-import * as nativePathFromPath from "path";
+import readline from "n-readlines";
+import * as path from "path";
 import * as fs from "fs";
 import {DebuggerVariable, Attribute, VariableType} from "./debugger";
+import * as log from './log';
 
-const nativePath = {
-    resolve: function (...args: string[]): string {
-        const nat = nativePathFromPath.resolve(...args);
-        if (process.platform === "win32" && this.cobcpath === "docker" && this.gdbpath === "docker") {
-            return nat.replace(/.*:/, s => "/" + s.toLowerCase().replace(":", "")).replace(/\\/g, "/");
-        }
-        return nat;
-    },
-    basename: function (path: string): string {
-        return nativePathFromPath.basename(path);
-    },
-    isAbsolute: function (path: string): boolean {
-        return nativePathFromPath.isAbsolute(path);
-    },
-    join: function (...args: string[]) {
-        return nativePathFromPath.join(...args);
+function normalizeExistingFileName(f: string): string {
+    if (f != undefined && process.platform === "win32") {
+        const lc = f.toLowerCase();
+        const uc = f.toUpperCase();
+        return (!fs.existsSync(lc) || !fs.existsSync(uc)) ? f : lc;
     }
-};
+    return f;
+}
+
+function cFile (filename: string) : string {
+    return path.basename(filename.split('.').slice(0, -1).join('.') + '.c');
+}
 
 const procedureRegex = /\/\*\sLine:\s([0-9]+)(\s+:\sEntry\s)?/i;
 const procedureFixRegex = /#line\s([0-9]+)\s".*\.c"/i;
@@ -35,95 +30,222 @@ const subroutineRegex = /\sPerform\s/i;
 const frame_ptrFindRegex = /frame\_ptr\-\-\;/;
 const fixOlderFormat = /cob\_trace\_stmt/;
 
-globalThis.varOccurs = [];
+function cobEncodeInvalidChars (s: string): string {
+    // TODO: properly mimick `libcob:cob_encode_invalid_chars`
+    // Meaning: Also replace any character in /[^a-zA-Z0-9-]/ into "_XX", where
+    // XX is the hexadecimal ascii code of the characher being replaced
+    return s.replace("-","__");
+}
+
+// Minimalistic one-entry cache.
+let currentCOBOLFileName: string = null;
+let currentCOBOLFileContents: string[] = [];
+
+function lookupLineInCobolFile(fileCobol: string, lineCobol: number) : string | undefined {
+    if (fileCobol && currentCOBOLFileName != fileCobol) {
+        currentCOBOLFileName = fileCobol;
+        try {
+            currentCOBOLFileContents = fs.readFileSync(fileCobol).toString().split('\n');
+        } catch (e) {
+            log.debug(e.message);
+            currentCOBOLFileContents = [];
+        }
+    }
+    if (currentCOBOLFileContents) {
+        return currentCOBOLFileContents[lineCobol - 1];
+    }
+    return undefined;
+}
+
+const globalNamespace = "<global>"
+const globalNamespacePrefix = `${globalNamespace}.`
 
 export class Line {
-    fileCobol: string;
-    fileC: string;
-    lineCobol: number;
-    lineC: number;
     endPerformLine: number;   // 002 - stepOver in routines with "perform"
+    public cobolLine: string | undefined;
 
-    public constructor(filePathCobol: string, lineCobol: number, filePathC: string, lineC: number) {
-        this.fileCobol = filePathCobol;
-        this.lineCobol = lineCobol;
-        this.fileC = filePathC;
-        this.lineC = lineC;
+    public constructor
+        (public fileCobol: string,
+         public lineCobol: number,
+         public fileC: string,
+         public rootFileC: string,
+         public lineC: number,
+         public functionName: string) {
         this.endPerformLine = -1;          // 002 - stepOver in routines with "perform"
+        this.cobolLine = lookupLineInCobolFile (fileCobol, lineCobol);
     }
 
     public toString(): string {
-        return `${this.fileCobol}:${this.lineCobol} > ${this.fileC}:${this.lineC}`;
+        return `${this.fileCobol}:${this.lineCobol} > ${this.fileC}:${this.lineC} | (${this.functionName})`;
     }
 }
 
+const dummyLine = new Line('', 0, '', '', 0, '');
+
 export class SourceMap {
     private cwd: string;
+    public sourceDirs: string[] = [];
     private lines: Line[] = new Array<Line>();
     private variablesByCobol = new Map<string, DebuggerVariable>();
     private variablesByC = new Map<string, DebuggerVariable>();
     private attributes = new Map<string, Attribute>();
     private dataStorages = new Map<string, DebuggerVariable>();
+    private loadedLibs = new Set<string>();
     private version: string;
-    private lineBefore: string = "";
-    private performLine: number = -1; // 002 - stepOver in routines with "perform" 
+    private performLine: number = -1; // 002 - stepOver in routines with "perform"
     private isVersion2_2_or_3_1_1: boolean = false;
 
-    constructor(cwd: string, filesCobol: string[]) {
-        this.cwd = fs.realpathSync(nativePathFromPath.resolve(cwd));
-        filesCobol.forEach(e => {
-            this.parse(nativePath.basename(e.split('.').slice(0, -1).join('.') + '.c'));
-        });
-    }
-
-    private parse(fileC: string): void {
-        let nat = fileC;
-        if (!nativePath.isAbsolute(fileC)) {
-            nat = nativePathFromPath.resolve(this.cwd, fileC);
-            fileC = nativePath.resolve(this.cwd, fileC);
+    constructor(cwd: string, filesCobol: string[], sourceDirs: string[] = []) {
+        this.cwd = fs.realpathSync(path.resolve(cwd));
+        log.debug(`Source dirs: ${sourceDirs}`);
+        for (const cSourceDir of sourceDirs) {
+            log.debug(`Trying to resolve ${cSourceDir}`);
+            let resolved_path = path.resolve(this.cwd, cSourceDir);
+            log.debug(`Checking for ${resolved_path}`);
+            if (fs.existsSync(resolved_path)) {
+                this.sourceDirs.push(normalizeExistingFileName(fs.realpathSync(resolved_path)));
+            }
         }
 
-        const basename = nativePath.basename(fileC);
+        this.sourceDirs.push(this.cwd);
+
+        filesCobol.forEach(e => {
+            let c_file = this.lookupSourceFile (cFile (e));
+            if (c_file) {
+                this.register (c_file);
+            }
+        });
+
+        log.info(`Resolved source dirs: ${this.sourceDirs}`);
+    }
+
+    private lookupSourceFile (file: string) : string | undefined {
+        for (const dir of this.sourceDirs) {
+            const filePath = path.join (dir, file);
+            if (fs.existsSync (filePath)) {
+                return normalizeExistingFileName (filePath);
+            }
+        }
+        return;
+    }
+
+    public addLib (libFile: string) : boolean {
+        if (this.loadedLibs.has (libFile)) {
+            return false;
+        }
+        this.loadedLibs.add (libFile);
+        log.info(`Loading ${libFile}`);
+        const c = this.lookupSourceFile (cFile (libFile));
+        if (c) {
+            this.register (c);
+            return true;
+        }
+        return false;
+    }
+
+    public remLib (libFile: string) : boolean {
+        if (!this.loadedLibs.has (libFile)) {
+            return false;
+        }
+        this.loadedLibs.delete (libFile);
+        log.info(`Unloading ${libFile}`);
+        // Note: assumes there was no FS changes in the meantime.
+        // Cleaner way would be to record a mapping between libs and source files.
+        const c = this.lookupSourceFile (cFile (libFile));
+        if (c) {
+            this.unregister (c);
+            return true;
+        }
+        return false;
+    }
+
+    private unregister (givenFileC: string) : void {
+        const [fileC, cleanedFile] = this.ensureAbsolute (givenFileC);
+        this.lines = this.lines.filter (line => line.rootFileC != fileC) ?? [];
+        for (const [k, v] of this.variablesByC) {
+            if (v.rootFileC == fileC) this.variablesByC.delete(k);
+        }
+        for (const [k, v] of this.variablesByCobol) {
+            if (v.rootFileC == fileC) this.variablesByCobol.delete(k);
+        }
+    }
+
+    private ensureAbsolute (fileC: string) : [string, string] {
+        let nat = fileC;
+        if (!path.isAbsolute(fileC)) {
+            fileC = path.resolve(this.cwd, fileC);
+        }
+
+        const basename = path.basename(fileC);
         const cleanedFile = basename.substring(0, basename.lastIndexOf(".c"));
 
-        let lineNumber = 0;
+        return [normalizeExistingFileName(fileC), cleanedFile];
+    }
 
-        const reader = new readline(process.platform === "win32" ? nat : fileC);
+    private register (givenFileC: string) : void {
+        void this.parse (givenFileC); // just parse the file.
+    }
+
+    private parse (givenFileC: string,
+                     prevLine: string | undefined = undefined,
+                    rootFileC: string | undefined = undefined,
+                 functionName: string | undefined = undefined) : string {
+        log.debug(`Parsing ${givenFileC}`);
+
+        const [fileC, cleanedFile] = this.ensureAbsolute (givenFileC);
+        rootFileC = rootFileC ?? fileC;
+
+        let lineNumber = 0;
         let row: false | Buffer;
         let fileCobol: string;
-        let functionName: string;
+
+        const reader = new readline(fileC);
         while (row = reader.next()) {
             const line = row.toString();
             let match = fileCobolRegex.exec(line);
             if (match) {
-                if (!nativePath.isAbsolute(match[1])) {
-                    fileCobol = nativePath.resolve(this.cwd, match[1]);
+                const filename = match[1];
+                const filebase = path.basename (filename);
+                if (!path.isAbsolute(filename)) {
+                    fileCobol = path.resolve(path.dirname (fileC), filename);
+                    if (!fs.existsSync(fileCobol)) {
+                        fileCobol = path.resolve(path.dirname (fileC), filebase);
+                    }
+                    if (!fs.existsSync(fileCobol)) {
+                        fileCobol = this.lookupSourceFile (filename);
+                    }
                 } else {
-                    fileCobol = match[1];
+                    fileCobol = filename;
                 }
+                if (!fs.existsSync(fileCobol)) {
+                    fileCobol = this.lookupSourceFile (filebase);
+                }
+                fileCobol = normalizeExistingFileName (fileCobol);
             }
             match = functionRegex.exec(line);
             if (match) {
-                functionName = match[1].toLowerCase() + "_";
+                functionName = cobEncodeInvalidChars(match[1]).toLowerCase() + "_";
             }
             match = procedureRegex.exec(line);
             if (match && !match[2]) {
-                if (this.lines.length > 0 && fileNameCompare(this.lines[this.lines.length - 1].fileCobol, fileCobol) && this.lines[this.lines.length - 1].lineCobol === parseInt(match[1])) {
+                if (this.lines.length > 0 && this.lines[this.lines.length - 1].fileCobol === fileCobol && this.lines[this.lines.length - 1].lineCobol === parseInt(match[1])) {
                     this.lines.pop();
                 }
-                if(subroutineRegex.exec(line)) 
+                if(subroutineRegex.exec(line))
                     this.performLine=-2; // must find line of frame_ptr
-                else 
-                    this.performLine=-1; 
-                this.lines.push(new Line(fileCobol, parseInt(match[1]), fileC, lineNumber + 2));
+                else
+                    this.performLine=-1;
+                this.lines.push(new Line(fileCobol, parseInt(match[1]), fileC, rootFileC, lineNumber + 2, functionName));
             }
             // fix new codegen
             match = procedureFixRegex.exec(line);
-            if (match && this.lines.length > 0) {
-                let isOldFormat = fixOlderFormat.exec(this.lineBefore);
-                if(this.isVersion2_2_or_3_1_1 || !isOldFormat){ // Is it in the old format?
+            if (match && this.lines.length > 0 && this.lines[this.lines.length - 1].functionName == functionName) {
+                let isOldFormat = fixOlderFormat.exec(prevLine);
+                if(this.lines[this.lines.length - 1].fileCobol === fileCobol && (this.isVersion2_2_or_3_1_1 || !isOldFormat)){ // Is it in the old format?
                     let line = this.lines.pop();
+                    // this.log (`Fixing line: ${line.toString ()}`);
                     line.lineC = parseInt(match[1]);
+                    // this.log (`New    line: ${line.toString ()}`);
                     this.lines.push(line);
                 }
             }
@@ -138,29 +260,44 @@ export class SourceMap {
                 if (match[3].startsWith("[")) {
                     size = parseInt(match[3].substring(1, match[3].length - 1));
                 }
-                const dataStorage = new DebuggerVariable(match[4], match[2], functionName, new Attribute(null, VariableType[match[1]], 0, 0), size);
-                this.dataStorages.set(`${functionName}.${dataStorage.cName}`, dataStorage);
-                this.variablesByC.set(`${functionName}.${dataStorage.cName}`, dataStorage);
-                this.variablesByCobol.set(`${functionName}.${dataStorage.cobolName.toUpperCase()}`, dataStorage);
+                const global = functionName === undefined;
+                const namespace = functionName ?? globalNamespace;
+                const cName = global ? `'${fileC}'::${match[2]}` : match[2];
+                const cobolName = match[4];
+                const cobolNAME = cobolName.toUpperCase();
+                const dataStorage = new DebuggerVariable(cobolName, cName, namespace, rootFileC, false, new Attribute(null, VariableType[match[1]], 0, 0), size);
+                this.dataStorages.set(`${namespace}.${dataStorage.cName}`, dataStorage);
+                this.variablesByC.set(`${namespace}.${dataStorage.cName}`, dataStorage);
+                const fullCobolName = global ? `'${fileC}'.${cobolNAME}` : cobolNAME;
+                this.variablesByCobol.set(`${namespace}.${fullCobolName}`, dataStorage);
             }
             match = fieldRegex.exec(line);
             if (match) {
+                const global = functionName === undefined;
+                const namespace = functionName ?? globalNamespace;
+                const cName = global ? `'${fileC}'::${match[1]}` : match[1];
+                const cRecord = global ? `'${fileC}'::${match[3]}` : match[3];
                 const attribute = this.attributes.get(`${cleanedFile}.${match[4]}`);
-                const dataStorage = this.dataStorages.get(`${functionName}.${match[3]}`);
-                const field = new DebuggerVariable(match[5], match[1], functionName, attribute, parseInt(match[2]));
+                const dataStorage = this.dataStorages.get(`${namespace}.${cRecord}`);
+                const cobolName = match[5];
+                const field = new DebuggerVariable(cobolName, cName, namespace, rootFileC, true, attribute, parseInt(match[2]));
 
-                this.variablesByC.set(`${functionName}.${field.cName}`, field);
+                this.variablesByC.set(`${namespace}.${field.cName}`, field);
 
+                let storageKey = namespace;
                 if (dataStorage) {
                     dataStorage.addChild(field);
-                    this.variablesByCobol.set(`${functionName}.${dataStorage.cobolName.toUpperCase()}.${field.cobolName.toUpperCase()}`, field);
-                } else {
-                    this.variablesByCobol.set(`${functionName}.${field.cobolName.toUpperCase()}`, field);
+                    const cobolNAME = dataStorage.cobolName.toUpperCase();
+                    const fullCobolStorage = global ? `'${fileC}'.${cobolNAME}` : cobolNAME;
+                    storageKey = `${namespace}.${fullCobolStorage}`;
                 }
+                this.variablesByCobol.set(`${storageKey}.${field.cobolName.toUpperCase()}`, field);
             }
             match = fileIncludeRegex.exec(line);
             if (match) {
-                this.parse(match[1]);
+                // Note: we assume the included file is in the same dir as the current file.
+                const filename = path.resolve (path.dirname (rootFileC), match[1]);
+                functionName = this.parse(filename, prevLine, rootFileC, functionName);
             }
             match = versionRegex.exec(line);
             if (match) {
@@ -174,10 +311,12 @@ export class SourceMap {
                     line.endPerformLine = lineNumber+1;
                     this.lines.push(line);
                 }
-            }            
-            this.lineBefore = line;
+            }
             lineNumber++;
+            prevLine = line;
         }
+
+        return functionName;
     }
 
     public getVariablesByC(): IterableIterator<DebuggerVariable> {
@@ -196,6 +335,34 @@ export class SourceMap {
         return this.variablesByC.size;
     }
 
+    public findVariableByC(functionName: string, cName: string): DebuggerVariable {
+        for (const key of this.variablesByC.keys()) {
+            if (key.startsWith(`${functionName}.`) && key.endsWith(`.${cName}`)) {
+                return this.variablesByC.get(key);
+            }
+        }
+        return null;
+    }
+
+    public findGlobalByC(cName: string): DebuggerVariable {
+        for (const key of this.variablesByC.keys()) {
+            if (key.startsWith(globalNamespacePrefix) && key.endsWith(`.${cName}`)) {
+                return this.variablesByC.get(key);
+            }
+        }
+        return null;
+    }
+
+    public globalCVariables() {
+        return Array.from(this.variablesByC.entries())
+                    .filter(([k,_]) => k.startsWith(globalNamespacePrefix))
+                    .map(([_,v]) => v);
+    }
+
+    public getGlobalByC(fileC: string, varC: string): DebuggerVariable {
+        return this.getVariableByC(`${globalNamespacePrefix}'${fileC}'::${varC}`);
+    }
+
     public getVariableByC(varC: string): DebuggerVariable {
         if (this.variablesByC.has(varC)) {
             return this.variablesByC.get(varC);
@@ -205,7 +372,19 @@ export class SourceMap {
 
     public findVariableByCobol(functionName: string, name: string): DebuggerVariable {
         for (const key of this.variablesByCobol.keys()) {
-            if (key.startsWith(functionName) && key.endsWith(`.${name.toUpperCase()}`)) {
+            if (key.startsWith(`${functionName}.`) && key.endsWith(`.${name.toUpperCase()}`)) {
+                return this.variablesByCobol.get(key);
+            }
+        }
+        return null;
+    }
+
+    public findGlobalByCobol(name: string, cFile: string = undefined): DebuggerVariable {
+        const prefix = cFile === undefined
+                     ? globalNamespacePrefix
+                     : `${globalNamespacePrefix}'${cFile}'.`;
+        for (const key of this.variablesByCobol.keys()) {
+            if (key.startsWith(prefix) && key.endsWith(`.${name.toUpperCase()}`)) {
                 return this.variablesByCobol.get(key);
             }
         }
@@ -218,8 +397,8 @@ export class SourceMap {
 
     public hasLineCobol(fileC: string, lineC: number): boolean {
         if(!fileC || !lineC) return false;
-        if (!nativePath.isAbsolute(fileC)) {
-            fileC = nativePath.join(this.cwd, fileC);
+        if (!path.isAbsolute(fileC)) {
+            fileC = path.join(this.cwd, fileC);
         }
         return this.lines.some(e => e.fileC === fileC && e.lineC === lineC);
     }
@@ -227,41 +406,43 @@ export class SourceMap {
     // 002 - stepOver in routines with "perform"
     public hasLineSubroutine(fileC: string, lineC: number): number {
         if(!fileC || !lineC) return -1;
-        if (!nativePath.isAbsolute(fileC)) {
-            fileC = nativePath.join(this.cwd, fileC);
+        if (!path.isAbsolute(fileC)) {
+            fileC = path.join(this.cwd, fileC);
         }
-        let line = this.lines.find(e => e.fileC === fileC && e.lineC === lineC) ?? new Line('', 0, '', 0);
-        return line.endPerformLine;
+        return this.lines.find(e => e.fileC === fileC && e.lineC === lineC)?.endPerformLine ?? -1;
     }
     // 002
 
     public hasLineC(fileCobol: string, lineCobol: number): boolean {
-        if (!nativePath.isAbsolute(fileCobol)) {
-            fileCobol = nativePath.join(this.cwd, fileCobol);
+        if (!path.isAbsolute(fileCobol)) {
+            fileCobol = path.join(this.cwd, fileCobol);
         }
-        return this.lines.some(e => fileNameCompare(e.fileCobol, fileCobol) && e.lineCobol === lineCobol);
+        return this.lines.some(e => e.fileCobol === fileCobol && e.lineCobol === lineCobol);
     }
 
     public getLineC(fileCobol: string, lineCobol: number): Line {
-        if (!nativePath.isAbsolute(fileCobol)) {
-            fileCobol = nativePath.join(this.cwd, fileCobol);
+        if (!path.isAbsolute(fileCobol)) {
+            fileCobol = path.join(this.cwd, fileCobol);
         }
-        return this.lines.find(e => fileNameCompare(e.fileCobol, fileCobol) && e.lineCobol === lineCobol) ?? new Line('', 0, '', 0);
+        return this.lines.find(e => e.fileCobol === fileCobol && e.lineCobol === lineCobol) ?? dummyLine;
     }
 
     public getLineCobol(fileC: string, lineC: number): Line {
-        if (!nativePath.isAbsolute(fileC)) {
-            fileC = nativePath.join(this.cwd, fileC);
+        if (!fileC) {
+            return dummyLine;
         }
-        return this.lines.find(e => e.fileC === fileC && e.lineC === lineC) ?? new Line('', 0, '', 0);
+        if (!path.isAbsolute(fileC)) {
+            fileC = path.join(this.cwd, fileC);
+        }
+        return this.lines.find(e => e.fileC === fileC && e.lineC === lineC) ?? dummyLine;
     }
 
     public getVersion(): string {
         return this.version;
     }
 
-    public toString(): string {
-        let out = `SourceMap created: lines ${this.lines.length}, vars ${this.variablesByC.size}\n`;
+    public toString(event = "created"): string {
+        let out = `SourceMap ${event}: lines ${this.lines.length}, vars ${this.variablesByC.size}\n`;
 
         this.lines.forEach(e => {
             out += e.toString() + "\n";
@@ -278,11 +459,4 @@ export class SourceMap {
         return out;
     }
 
-}
-
-function fileNameCompare(fileNameOne: string, fileNameTwo: string): boolean {
-    if(process.platform === "win32")
-        return fileNameOne.toUpperCase() === fileNameTwo.toUpperCase();
-    else
-        return fileNameOne === fileNameTwo;
 }

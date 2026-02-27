@@ -15,10 +15,10 @@ import * as os from "os";
 import * as nativePath from "path";
 import * as ChildProcess from "child_process";
 import {SourceMap} from "./parser.c";
-import * as gcov from "gcov-parse";
+import {GcovData, loadGcovData} from "./gcov";
 
 export class CoverageStatus implements Disposable {
-    private coverages: gcov.Coverage[] = [];
+    private coverages: GcovData[] = [];
     private sourceMap: SourceMap;
     private statusBar: StatusBarItem = window.createStatusBarItem(StatusBarAlignment.Right, 100);
     readonly RED: TextEditorDecorationType = window.createTextEditorDecorationType({
@@ -55,23 +55,24 @@ export class CoverageStatus implements Disposable {
         this.statusBar.command = this.COMMAND;
     }
 
-    public show(gcovFiles: string[], sourceMap: SourceMap, docker: string = undefined) {
-        if (docker !== undefined) {
-            for (let i = 0; i < gcovFiles.length; i++) {
-                const localPath = nativePath.resolve(os.tmpdir(), nativePath.basename(gcovFiles[i]));
-                ChildProcess.spawnSync('docker', ['cp', `gnucobol:${gcovFiles[i]}.gcda`, `${localPath}.gcda`]);
-                ChildProcess.spawnSync('docker', ['cp', `gnucobol:${gcovFiles[i]}.gcno`, `${localPath}.gcno`]);
-                gcovFiles[i] = localPath;
-            }
-        }
-
-        this.coverages = gcov.parse(gcovFiles);
+    public async show(cFiles: string[], sourceMap: SourceMap) {
+        this.highlight = true;
+        this.coverages = await loadGcovData(cFiles);
         this.sourceMap = sourceMap;
         this.updateStatus();
     }
 
     public dispose() {
         this.statusBar.dispose();
+    }
+
+    public setHighlight(highlighted: boolean) {
+        this.highlight = highlighted;
+    }
+
+    public hide() {
+        this.highlight = false;
+        this.updateStatus();
     }
 
     private updateStatus() {
@@ -83,17 +84,19 @@ export class CoverageStatus implements Disposable {
         const red: Range[] = [];
         const green: Range[] = [];
         for (const coverage of this.coverages) {
-            for (const line of coverage.lines) {
-                if (this.sourceMap.hasLineCobol(coverage.file, line.line)) {
-                    const map = this.sourceMap.getLineCobol(coverage.file, line.line);
-                    if (editor.document.uri.fsPath !== map.fileCobol) {
-                        continue;
-                    }
-                    const range = new Range(map.lineCobol - 1, 0, map.lineCobol - 1, Number.MAX_VALUE);
-                    if (line.executed) {
-                        green.push(range);
-                    } else {
-                        red.push(range);
+            for (const file of coverage.files) {
+                for (const line of file.lines) {
+                    if (this.sourceMap.hasLineCobol(file.file, line.line_number)) {
+                        const map = this.sourceMap.getLineCobol(file.file, line.line_number);
+                        if (editor.document.uri.fsPath !== map.fileCobol) {
+                            continue;
+                        }
+                        const range = new Range(map.lineCobol - 1, 0, map.lineCobol - 1, Number.MAX_VALUE);
+                        if (line.count > 0) {
+                            green.push(range);
+                        } else {
+                            red.push(range);
+                        }
                     }
                 }
             }
