@@ -1,5 +1,6 @@
 ## Next
 
+* Use module build tasks by default, and run programs without GDB when not debugging [PR #44](https://github.com/ocamlpro/superbol-vscode-debug/pull/44)
 * Enable customization of the COBOL runtime [PR #42](https://github.com/ocamlpro/superbol-vscode-debug/pull/42)
 * Show global data items in Variables panel [PR #40](https://github.com/ocamlpro/superbol-vscode-debug/pull/40)
 * Fixed a bug that made the extension hang when debugged programs displayed signed numbers [PR #39](https://github.com/ocamlpro/superbol-vscode-debug/pull/39)
