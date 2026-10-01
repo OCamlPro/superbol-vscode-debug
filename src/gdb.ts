@@ -86,14 +86,54 @@ export class GDBDebugSession extends DebugSession {
     coverageStatus: CoverageStatus;
     private showCoverage: boolean = true;
     private readonly showDetails = settings.displayVariableAttributes;
+    private supportsRunInTerminal: boolean = false;
 
-    protected initializeRequest(response: DebugProtocol.InitializeResponse, _args: DebugProtocol.InitializeRequestArguments): void {
+    protected initializeRequest(response: DebugProtocol.InitializeResponse, args: DebugProtocol.InitializeRequestArguments): void {
+        this.supportsRunInTerminal = !!args.supportsRunInTerminalRequest;
         response.body.supportsSetVariable = true;
         this.sendResponse(response);
     }
 
+    /** Run the program in a terminal, without GDB. */
+    private runWithoutDebugger(response: DebugProtocol.LaunchResponse, args: LaunchRequestArguments): void {
+        const cwd = args.cwd ?? path.dirname(args.target);
+        const name = path.basename(args.target, path.extname(args.target));
+        let command: string[];
+        if (args.useCobcrun) {
+            command = [args.cobcrunPath ?? settings.cobcrunPath, name];
+        } else {
+            const exe = process.platform === "win32" ? name + ".exe" : name;
+            command = [path.join(cwd, exe)];
+        }
+        const programArgs = (args.arguments ?? "").split(/\s+/).filter(a => a !== "");
+        const env: { [key: string]: string | null } = {};
+        for (const [key, value] of Object.entries(args.env ?? {})) {
+            env[key] = value ?? null;
+        }
+        this.runInTerminalRequest({
+            kind: "integrated",
+            title: name,
+            cwd: cwd,
+            args: command.concat(programArgs),
+            env: env,
+        }, 10000, (runResponse) => {
+            if (runResponse.success) {
+                this.sendResponse(response);
+                // The program keeps running in the terminal; the session ends here.
+                this.sendEvent(new TerminatedEvent());
+            } else {
+                this.sendErrorResponse(response, 104, `Failed to run program: ${runResponse.message}`);
+            }
+        });
+    }
+
     protected launchRequest(response: DebugProtocol.LaunchResponse, args: LaunchRequestArguments): void {
         initLogLevel(args.verbose);
+
+        if (args.noDebug && this.supportsRunInTerminal) {
+            this.runWithoutDebugger(response, args);
+            return;
+        }
 
         this.showCoverage = args.coverage;
         this.started = false;
