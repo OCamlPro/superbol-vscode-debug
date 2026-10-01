@@ -24,8 +24,55 @@ export function escape(str: string) {
     return str.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
 }
 
-function removePathExtension(f: string) : string {
+export function removePathExtension(f: string) : string {
     return path.basename(f, path.extname(f));
+}
+
+const programIdRegex =
+    /PROGRAM-ID\s*\.?\s*(?:"([^"]+)"|'([^']+)'|([\w-]+))(?:\s+AS\s+(?:"([^"]+)"|'([^']+)'))?/i;
+
+/** Name of the entry point to give to `cobcrun` for the given target: the
+ * name of the first program in the source file, or the name of the file if it
+ * cannot be found.  It may differ from the name of the module file (e.g,
+ * `PROGRAM-ID. HELLO` in `hello.cob`), so `cobcrunArgs` also passes the file
+ * with `-M`.  The name is returned as written in the source: `cobcrun`
+ * encodes it itself (see `cob_encode_program_id` in libcob) when resolving
+ * the entry point, as for any dynamic `CALL`. */
+function moduleEntryName(target: string, cwd: string): string {
+    const file = path.resolve(cwd, target);
+    try {
+        for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
+            // Skip comment lines (fixed and free formats).
+            if (/^.{6}[*/]/.test(line) || /^\s*\*>/.test(line)) {
+                continue;
+            }
+            const m = programIdRegex.exec(line);
+            if (m) {
+                return m[4] ?? m[5] ?? m[1] ?? m[2] ?? m[3];
+            }
+        }
+    } catch (e) {
+        log.debug(`could not read ${file}: ${e}`);
+    }
+    return removePathExtension(target);
+}
+
+/** Path to the executable built from the given target. */
+export function cobExecutablePath(target: string, cwd: string): string {
+    target = removePathExtension(target);
+    if (!path.isAbsolute(target)) {
+        target = path.join(cwd, target);
+    }
+    if (process.platform === "win32") {
+        target = target + '.exe';
+    }
+    return target;
+}
+
+/** Arguments to give to `cobcrun` to run the module built from the given
+ * target. */
+export function cobcrunArgs(target: string, cwd: string): string[] {
+    return ["-M", removePathExtension(target), moduleEntryName(target, cwd)];
 }
 
 export function couldBeOutput(line: string) {
@@ -139,14 +186,7 @@ export class MI2 extends EventEmitter implements IDebugger {
     }
 
     private targetCobExecutable(target: string, cwd: string) {
-        target = removePathExtension(target);
-        if (!path.isAbsolute(target)) {
-            target = path.join(cwd, target);
-        }
-        if (process.platform === "win32") {
-            target = target + '.exe';
-        }
-        return escape(target);
+        return escape(cobExecutablePath(target, cwd));
     }
 
     private launchCommands(target: string, targetargs: string, cwd: string) {
@@ -154,7 +194,7 @@ export class MI2 extends EventEmitter implements IDebugger {
             ? this.cobcrunPath
             : this.targetCobExecutable(target, cwd);
         targetargs = this.useCobcrun
-            ? `${removePathExtension(target)} ${targetargs}`
+            ? `${cobcrunArgs(target, cwd).join(" ")} ${targetargs}`
             : targetargs;
         return this.commonCommands(cwd).concat([
             this.sendCommand("gdb-set args " + targetargs),

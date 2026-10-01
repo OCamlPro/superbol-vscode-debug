@@ -86,7 +86,7 @@ class GdbConfigurationProvider implements vscode.DebugConfigurationProvider {
                 config.group = [];
             }
             const libcobpath = settings.libcobPath;
-            if (libcobpath != undefined) {
+            if (libcobpath) {
                 if (config.env === undefined) {
                     config.env = { ["LD_LIBRARY_PATH"]: libcobpath };
                 } else {
