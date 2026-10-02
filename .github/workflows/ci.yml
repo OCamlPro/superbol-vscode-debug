@@ -17,12 +17,11 @@ jobs:
            - macos-latest
            - windows-latest
         node:
-           - 20
+           - 22
         code-version:
            - stable
            - 1.66.0
         include:
-           - { os: ubuntu-latest, node: 22, code-version: stable }
            - { os: ubuntu-latest, node: 24, code-version: stable }
     runs-on: ${{ matrix.os }}
     name: Test with Node ${{ matrix.node }} and VSCode ${{ matrix.code-version }} on ${{ matrix.os }}
