@@ -68,6 +68,13 @@ export interface AttachRequestArguments extends DebugProtocol.AttachRequestArgum
 /** Module file extensions, as produced by `cobc -m`. */
 const MODULE_EXTENSIONS = [".so", ".dylib", ".dll"];
 
+/** Time (in ms) to wait for the client to start the program in a terminal. */
+const RUN_IN_TERMINAL_TIMEOUT_MS = 10000;
+
+/** Identifier of the error sent when the program cannot be run in a terminal
+ * (follows the launch errors 100 and 103 below). */
+const RUN_IN_TERMINAL_ERROR_ID = 104;
+
 /** Guess if the target was built as a module: there is a module file but no
  * executable. */
 function isModuleTarget(target: string, cwd: string): boolean {
@@ -123,13 +130,13 @@ export class GDBDebugSession extends DebugSession {
             cwd: cwd,
             args: command.concat(programArgs),
             env: env,
-        }, 10000, (runResponse) => {
+        }, RUN_IN_TERMINAL_TIMEOUT_MS, (runResponse) => {
             if (runResponse.success) {
                 this.sendResponse(response);
                 // The program keeps running in the terminal; the session ends here.
                 this.sendEvent(new TerminatedEvent());
             } else {
-                this.sendErrorResponse(response, 104, `Failed to run program: ${runResponse.message}`);
+                this.sendErrorResponse(response, RUN_IN_TERMINAL_ERROR_ID, `Failed to run program: ${runResponse.message}`);
             }
         });
     }
