@@ -6,8 +6,9 @@
 			"command": "npm",
 			"type": "shell",
 			"presentation": {
-				"reveal": "always",
-				"panel": "new"
+				"reveal": "silent",
+				"revealProblems": "onProblem",
+				"panel": "dedicated"
 			},
 			"args": [
 				"run",
@@ -15,7 +16,7 @@
 				"--loglevel",
 				"silent"
 			],
-			"isBackground": true,
+			"isBackground": false,
 			"problemMatcher": "$tsc-watch",
 			"group": {
 				"kind": "build",

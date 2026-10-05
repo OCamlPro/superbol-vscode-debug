@@ -7,32 +7,34 @@
 			"request": "launch",
 			"runtimeExecutable": "${execPath}",
 			"args": [
-				"--extensionDevelopmentPath=${workspaceRoot}",
-				"--trace-deprecation"
+				"--profile-temp",
+				"--new-window",
+				"--transient",
+				// "--extensions-dir=${workspaceFolder}/.vscode-test/extensions",
+				// "--user-data-dir=${workspaceFolder}/.vscode-test/user-data",
+				"--extensionDevelopmentPath=${workspaceFolder}",
+				"--trace-deprecation",
+				"${workspaceFolder}/test/resources",
 			],
-			"stopOnEntry": false,
+			"autoAttachChildProcesses": true,
 			"sourceMaps": true,
 			"outFiles": [
-				"${workspaceRoot}/out/**/*.js"
+				"${workspaceFolder}/**/*.(m|c|)js",
+				"!**/node_modules/**"
 			],
-			"preLaunchTask": "npm",
-			"internalConsoleOptions": "openOnSessionStart"
+			"preLaunchTask": "npm"
 		},
 		{
 			"name": "Tests",
 			"type": "extensionHost",
 			"request": "launch",
-			"runtimeExecutable": "${execPath}",
-			"args": [
-				"--disable-extensions",
-				"--extensionDevelopmentPath=${workspaceFolder}",
-				"--extensionTestsPath=${workspaceFolder}/out/test/suite/index"
-			],
+			"testConfiguration": "${workspaceFolder}/.vscode-test.js",
+			"sourceMaps": true,
 			"outFiles": [
-				"${workspaceRoot}/out/**/*.js"
+				"${workspaceFolder}/**/*.(m|c|)js",
+				"!**/node_modules/**"
 			],
-			"preLaunchTask": "npm",
-			"internalConsoleOptions": "openOnSessionStart"
+			"preLaunchTask": "npm"
 		}
 	]
 }

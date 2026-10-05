@@ -6,8 +6,8 @@ import { parseExpression, cleanRawValue } from '../../src/functions';
 suite("Useful functions", () => {
     const cwd = nativePath.resolve(__dirname, '../../../test/resources');
     const c = nativePath.resolve(cwd, 'petstore.c');
-    const parsed = new SourceMap(cwd, [c]);
-    console.log(parsed.toString());
+    const parsed = new SourceMap(cwd, [c], [cwd]);
+    //console.log(parsed.toString());
     const functionName = "petstore_";
 
     test("it can parse expressions", () => {
