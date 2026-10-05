@@ -298,7 +298,7 @@
 		"@typescript-eslint/parser": "^6.7.2",
 		"@vscode/debugadapter-testsupport": "^1.51.0",
 		"@vscode/test-cli": "^0.0.12",
-		"@vscode/test-electron": "^2.5.2",
+		"@vscode/test-electron": "^3.1.0",
 		"eslint": "^8.50.0",
 		"eslint_d": "^12.2.1",
 		"mocha": "^10.8.2",

@@ -13,14 +13,23 @@ const COBOL_RESERVED_WORDS = ["perform", "move", "to", "set", "add", "subtract",
 const superbolConsts = {
     taskType: "superbol",
     taskSource: "SuperBOL",
-    debugBuildTaskName: "build (debug)",
+    buildTaskName: "build module",
+    debugBuildTaskName: "build module (debug)",
 }
-const defaultDebugBuildTask = `${superbolConsts.taskSource}: ${superbolConsts.debugBuildTaskName}`;
 
-async function checkForSuperBOLBuildTask () {
+/** Name of the default build task: debug build, unless we run without debugging. */
+function defaultBuildTaskName (noDebug: boolean | undefined) {
+    return noDebug ? superbolConsts.buildTaskName : superbolConsts.debugBuildTaskName;
+}
+
+function taskLabel (taskName: string) {
+    return `${superbolConsts.taskSource}: ${taskName}`;
+}
+
+async function checkForSuperBOLBuildTask (taskName: string) {
     return vscode.tasks.fetchTasks({ type: superbolConsts.taskType }).then((tasks) =>
         tasks.find(task => task.source == superbolConsts.taskSource &&
-                           task.name == superbolConsts.debugBuildTaskName) != undefined
+                           task.name == taskName) != undefined
     );
 }
 
@@ -44,7 +53,8 @@ export function deactivate() {
 class GdbConfigurationProvider implements vscode.DebugConfigurationProvider {
     public resolveDebugConfiguration(workspaceFolder: vscode.WorkspaceFolder | undefined, config: vscode.DebugConfiguration, _token?: vscode.CancellationToken): vscode.ProviderResult<vscode.DebugConfiguration> {
         config.gdbargs = ["-q", "--interpreter=mi2"];
-        return checkForSuperBOLBuildTask().then(haveSuperBOLBuildTask => {
+        const buildTaskName = defaultBuildTaskName(config.noDebug);
+        return checkForSuperBOLBuildTask(buildTaskName).then(haveSuperBOLBuildTask => {
             if (config.name === undefined && haveSuperBOLBuildTask) {
                 config.name = "SuperBOL: default debug";
             }
@@ -58,7 +68,11 @@ class GdbConfigurationProvider implements vscode.DebugConfigurationProvider {
                 workspaceFolder != undefined &&
                 config.request != "attach" &&
                 config.preLaunchTask === undefined) {
-                config.preLaunchTask = defaultDebugBuildTask;
+                config.preLaunchTask = taskLabel(buildTaskName);
+                // Default build tasks produce modules, so we run them with cobcrun.
+                if (config.useCobcrun === undefined) {
+                    config.useCobcrun = true;
+                }
             } else if (config.preLaunchTask === "") {
                 delete config.preLaunchTask;
             }
@@ -72,7 +86,7 @@ class GdbConfigurationProvider implements vscode.DebugConfigurationProvider {
                 config.group = [];
             }
             const libcobpath = settings.libcobPath;
-            if (libcobpath != undefined) {
+            if (libcobpath) {
                 if (config.env === undefined) {
                     config.env = { ["LD_LIBRARY_PATH"]: libcobpath };
                 } else {
@@ -92,12 +106,14 @@ class GdbConfigurationProvider implements vscode.DebugConfigurationProvider {
 
     public provideDebugConfigurations(_folder: vscode.WorkspaceFolder, _token?: vscode.CancellationToken)
         : vscode.ProviderResult<vscode.DebugConfiguration[]> {
-        return checkForSuperBOLBuildTask().then(haveSuperBOLBuildTask => {
+        const buildTaskName = superbolConsts.debugBuildTaskName;
+        return checkForSuperBOLBuildTask(buildTaskName).then(haveSuperBOLBuildTask => {
             const launchConfigDefault: vscode.DebugConfiguration = {
                 name: "SuperBOL: debug (launch)",
                 type: "superbol-gdb",
                 request: "launch",
-                preLaunchTask: haveSuperBOLBuildTask ? defaultDebugBuildTask : undefined,
+                preLaunchTask: haveSuperBOLBuildTask ? taskLabel(buildTaskName) : undefined,
+                useCobcrun: haveSuperBOLBuildTask ? true : undefined,
                 target: "${file}",
                 arguments: ""
             };

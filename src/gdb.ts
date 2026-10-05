@@ -16,7 +16,8 @@ import {DebugProtocol} from '@vscode/debugprotocol';
 import {Breakpoint, DebuggerVariable, localizeSymbols} from './debugger';
 import {MINode} from './parser.mi2';
 import * as path from "path";
-import {MI2} from './mi2';
+import * as fs from "fs";
+import {MI2, cobExecutablePath, cobcrunArgs, removePathExtension} from './mi2';
 import {CoverageStatus} from './coverage';
 import {accessors as settings} from './settings';
 import * as log from './log';
@@ -64,6 +65,24 @@ export interface AttachRequestArguments extends DebugProtocol.AttachRequestArgum
     sourceDirs: string[];
 }
 
+/** Module file extensions, as produced by `cobc -m`. */
+const MODULE_EXTENSIONS = [".so", ".dylib", ".dll"];
+
+/** Time (in ms) to wait for the client to start the program in a terminal. */
+const RUN_IN_TERMINAL_TIMEOUT_MS = 10000;
+
+/** Identifier of the error sent when the program cannot be run in a terminal
+ * (follows the launch errors 100 and 103 below). */
+const RUN_IN_TERMINAL_ERROR_ID = 104;
+
+/** Guess if the target was built as a module: there is a module file but no
+ * executable. */
+function isModuleTarget(target: string, cwd: string): boolean {
+    const name = path.join(cwd, removePathExtension(target));
+    return !fs.existsSync(cobExecutablePath(target, cwd)) &&
+        MODULE_EXTENSIONS.some(ext => fs.existsSync(name + ext));
+}
+
 function initLogLevel(verbose: boolean) {
     if (verbose) {
         log.setLevel(log.Level.Debug);
@@ -86,19 +105,61 @@ export class GDBDebugSession extends DebugSession {
     coverageStatus: CoverageStatus;
     private showCoverage: boolean = true;
     private readonly showDetails = settings.displayVariableAttributes;
+    private supportsRunInTerminal: boolean = false;
 
-    protected initializeRequest(response: DebugProtocol.InitializeResponse, _args: DebugProtocol.InitializeRequestArguments): void {
+    protected initializeRequest(response: DebugProtocol.InitializeResponse, args: DebugProtocol.InitializeRequestArguments): void {
+        this.supportsRunInTerminal = !!args.supportsRunInTerminalRequest;
         response.body.supportsSetVariable = true;
         this.sendResponse(response);
+    }
+
+    /** Run the program in a terminal, without GDB. */
+    private runWithoutDebugger(response: DebugProtocol.LaunchResponse, args: LaunchRequestArguments,
+                               cwd: string, cobcrunPath: string): void {
+        const command = args.useCobcrun
+            ? [cobcrunPath].concat(cobcrunArgs(args.target, cwd))
+            : [cobExecutablePath(args.target, cwd)];
+        const programArgs = (args.arguments ?? "").split(/\s+/).filter(a => a !== "");
+        const env: { [key: string]: string | null } = {};
+        for (const [key, value] of Object.entries(args.env ?? {})) {
+            env[key] = value ?? null;
+        }
+        this.runInTerminalRequest({
+            kind: "integrated",
+            title: removePathExtension(args.target),
+            cwd: cwd,
+            args: command.concat(programArgs),
+            env: env,
+        }, RUN_IN_TERMINAL_TIMEOUT_MS, (runResponse) => {
+            if (runResponse.success) {
+                this.sendResponse(response);
+                // The program keeps running in the terminal; the session ends here.
+                this.sendEvent(new TerminatedEvent());
+            } else {
+                this.sendErrorResponse(response, RUN_IN_TERMINAL_ERROR_ID, `Failed to run program: ${runResponse.message}`);
+            }
+        });
     }
 
     protected launchRequest(response: DebugProtocol.LaunchResponse, args: LaunchRequestArguments): void {
         initLogLevel(args.verbose);
 
+        const cobcrunPath = args.cobcrunPath ?? settings.cobcrunPath;
+        // Run in the target executables' directory, unless specified; becomes '.' if target is a module name.
+        let cwd = args.cwd ?? path.dirname (args.target);
+
+        if (args.useCobcrun === undefined) {
+            args.useCobcrun = isModuleTarget(args.target, cwd);
+        }
+
+        if (args.noDebug && this.supportsRunInTerminal) {
+            this.runWithoutDebugger(response, args, cwd, cobcrunPath);
+            return;
+        }
+
         this.showCoverage = args.coverage;
         this.started = false;
         this.attached = false;
-        const cobcrunPath = args.cobcrunPath ?? settings.cobcrunPath;
 
         this.miDebugger = new MI2(settings.gdbPath, args.gdbargs, args.env, args.noDebug, args.gdbtty, cobcrunPath, args.useCobcrun, args.sourceDirs);
         this.miDebugger.on("launcherror", (err: Error) => this.launchError(err));
@@ -118,8 +179,6 @@ export class GDBDebugSession extends DebugSession {
         this.needContinue = false;
         this.crashed = false;
         this.debugReady = false;
-        // Run in the target executables' directory, unless specified; becomes '.' if target is a module name.
-        let cwd = args.cwd ?? path.dirname (args.target);
         this.miDebugger.load(cwd, args.target, args.arguments, args.group, args.gdbtty).then(
         /*onfulfilled:*/ () => {
             setTimeout(() => {
