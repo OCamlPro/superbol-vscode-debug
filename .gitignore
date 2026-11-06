@@ -8,3 +8,5 @@ hello
 hello3
 .idea/
 .vscode-test/
+.vscode-test-workspace/*
+!.vscode-test-workspace/.dummy

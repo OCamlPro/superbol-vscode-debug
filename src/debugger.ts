@@ -1,7 +1,7 @@
 import {MINode} from "./parser.mi2";
 import {DebugProtocol} from "@vscode/debugprotocol/lib/debugProtocol";
 import {removeLeadingZeroes} from "./functions";
-import {SourceMap} from "./parser.c";
+import {SourceMap, Line} from "./parser.c";
 
 export interface Breakpoint {
     file?: string;
@@ -19,11 +19,32 @@ export interface Thread {
 
 export interface Stack {
     level: number;
-    address: string;
     function: string;
-    fileName: string;
-    file: string;
+    line: Line;
+}
+
+export interface FileSymbols {
+    filename: string;
+    fullname: string;
+    symbols: Symbol[];
+}
+
+export interface Symbol {
     line: number;
+    name: string;
+    type: string;
+    description: string;
+}
+
+export interface LocalizedSymbol {
+    symbol: Symbol;
+    filename: string;
+}
+
+export function localizeSymbols(fileSymbols: FileSymbols): LocalizedSymbol[] {
+    return fileSymbols.symbols.map(s => {
+        return { symbol: s, filename: fileSymbols.filename }
+    });
 }
 
 const repeatTimeRegex = /(\"\,\s|^)\'(\s|0)\'\s\<repeats\s(\d+)\stimes\>/i;
@@ -398,18 +419,20 @@ export class Attribute {
 
 export class DebuggerVariable {
 
-    public displayableType: string;
-    public details: VariableDetail[];
+    public readonly displayableType: string;
+    public readonly details: VariableDetail[];
 
     public constructor(
-        public cobolName: string,
-        public cName: string,
-        public functionName: string,
-        public attribute: Attribute = null,
-        public size: number = null,
+        public readonly cobolName: string,
+        public readonly cName: string,
+        public readonly functionName: string,
+        public readonly rootFileC: string,
+        public readonly isField: boolean,
+        public readonly attribute: Attribute = null,
+        public readonly size: number = null,
         public value: string = null,
         public parent: DebuggerVariable = null,
-        public children: Map<string, DebuggerVariable> = new Map<string, DebuggerVariable>()) {
+        public readonly children: Map<string, DebuggerVariable> = new Map<string, DebuggerVariable>()) {
         [this.displayableType, this.details] = this.attribute.getDetails(this.size);
     }
 
@@ -469,7 +492,7 @@ export class DebuggerVariable {
 export interface IDebugger {
     load(cwd: string, target: string, targetargs: string, group: string[], gdbtty: boolean): Thenable<any>;
 
-    attach(cwd: string, target: string, targetargs: string, group: string[]): Thenable<any>;
+    attach(cwd: string, target: string, group: string[]): Thenable<any>;
 
     start(pid?: string): Thenable<boolean>;
 
@@ -501,13 +524,16 @@ export interface IDebugger {
 
     getStackVariables(thread: number, frame: number): Thenable<DebuggerVariable[]>;
 
-    evalExpression(name: string, thread: number, frame: number): Thenable<any>;
+    globalStorageSymbols(): Thenable<FileSymbols[]>;
 
-    evalCobField(name: string, thread: number, frame: number): Promise<DebuggerVariable>;
+    evalSymbol(s: LocalizedSymbol): Promise<DebuggerVariable>;
+
+    evalExpression(name: string, thread: number, frame: number): Promise<string>;
 
     isReady(): boolean;
 
-    changeVariable(name: string, rawValue: string): Promise<any>;
+    changeVariable(name: string, rawValue: string): Promise<Array<DebugProtocol.InvalidatedAreas>>;
+    changeGlobalCVariable(cName: string, rawValue: string): Promise<Array<DebugProtocol.InvalidatedAreas>>;
 
     examineMemory(from: number, to: number): Thenable<any>;
 
@@ -515,7 +541,7 @@ export interface IDebugger {
 
     sendUserInput(command: string, threadId: number, frameLevel: number): Thenable<any>;
 
-    getSourceMap(): SourceMap;
+    sourceMap(): SourceMap;
 }
 
 export class VariableObject {

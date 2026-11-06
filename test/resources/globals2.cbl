@@ -1,0 +1,9 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. globals2.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       77 FOO PIC 999 GLOBAL.
+       PROCEDURE DIVISION.
+           MOVE 42 TO FOO
+           DISPLAY FOO
+           GOBACK.
