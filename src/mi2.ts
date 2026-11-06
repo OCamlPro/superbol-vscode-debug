@@ -125,6 +125,9 @@ export class MI2 extends EventEmitter implements IDebugger {
 
     load(cwd: string, target: string, targetargs: string, group: string[], gdbtty: boolean): Thenable<unknown> {
         return new Promise(async (resolve, reject) => {
+          // Reject on any exception: otherwise, the launch request would never
+          // be answered.
+          try {
             if (!fs.existsSync(cwd)) {
                 reject(new Error("cwd does not exist."));
             }
@@ -170,7 +173,9 @@ export class MI2 extends EventEmitter implements IDebugger {
                     this.emit("debug-ready");
                     resolve(true);
                 }, reject);
-
+          } catch (e) {
+              reject(e);
+          }
         });
     }
 
@@ -1163,7 +1168,15 @@ export class MI2 extends EventEmitter implements IDebugger {
     findTtyName(target, gdbtty): string {
         let sleepVal = this.hashCode(target);
         let fxterm_device = "";
-        var result = ChildProcess.execSync("ps -u");
+        let result: Buffer;
+        try {
+            // Lists the processes of the user that run in a terminal.
+            result = ChildProcess.execSync("ps -u", { stdio: ["ignore", "pipe", "ignore"] });
+        } catch (_e) {
+            // `ps` fails when there is no such process (e.g., when no
+            // terminal is open, or in CI).
+            return fxterm_device;
+        }
         let lines = result.toString().split("\n");
         for (let key1 in lines) {
             if (lines[key1].includes("sleep " + sleepVal)) {
